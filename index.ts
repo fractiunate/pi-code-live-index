@@ -436,7 +436,7 @@ export function formatStatusCommand(payload: Record<string, any>): string {
     `live: ${live.running ? "running" : "stopped"}${live.stale ? ` stale=${live.stale_reason ?? true}` : ""}`,
     `setup: errors=${setup.errors ?? 0} warnings=${setup.warnings ?? 0}`,
     `latency_ms: last=${perf.last ?? "?"} avg=${perf.average ?? "?"} max=${perf.max ?? "?"}`,
-    "Next: use `pi-code-index status --json` for full details or `/code-index-doctor` for setup checks.",
+    "Next: use `pi-code-index status --json` for full details or `/code-index doctor` for setup checks.",
   ].join("\n");
 }
 
@@ -703,84 +703,27 @@ export default function (pi: ExtensionAPI) {
 
   type CommandCtx = { cwd: string; ui: { notify: (message: string, level: "info" | "success" | "error") => void } };
 
-  pi.registerCommand("code-index-status", {
-    description: "Show pi-code-index status for the current repository.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["status", "--json"], ctx.cwd);
-        ctx.ui.notify(formatStatusCommand(payload as Record<string, any>), "info");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  pi.registerCommand("code-index", {
+    description: "Manage pi-code-index: status, refresh, doctor, stop, live status/start/stop.",
+    handler: async (rawArgs: string, ctx: CommandCtx) => {
+      const usage = "Usage: /code-index [status|refresh|doctor|stop|live status|live start|live stop]";
+      const parts = rawArgs.trim().split(/\s+/).filter(Boolean);
+      const command = parts[0] ?? "status";
+      const liveCommand = parts[1] ?? "status";
+      const map: Record<string, { args: string[]; level: "info" | "success"; format?: (payload: Record<string, any>) => string }> = {
+        status: { args: ["status", "--json"], level: "info", format: formatStatusCommand },
+        refresh: { args: ["refresh", "--json"], level: "success" },
+        doctor: { args: ["doctor", "--json"], level: "info", format: formatDoctorCommand },
+        stop: { args: ["stop", "--json"], level: "success" },
+      };
+      const spec = command === "live" ? { args: ["live", liveCommand, "--json"], level: liveCommand === "status" ? "info" as const : "success" as const } : map[command];
+      if (!spec || (command === "live" && !["status", "start", "stop"].includes(liveCommand))) {
+        ctx.ui.notify(usage, "error");
+        return;
       }
-    },
-  });
-
-  pi.registerCommand("code-index-refresh", {
-    description: "Refresh the pi-code-index index for the current repository.",
-    handler: async (_args: string, ctx: CommandCtx) => {
       try {
-        const payload = await runCli(pi, ["refresh", "--json"], ctx.cwd);
-        ctx.ui.notify(JSON.stringify(payload, null, 2), "success");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand("code-index-stop", {
-    description: "Stop the pi-code-index daemon if it is running.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["stop", "--json"], ctx.cwd);
-        ctx.ui.notify(JSON.stringify(payload, null, 2), "success");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand("code-index-live-status", {
-    description: "Show pi-code-index live watcher status.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["live", "status", "--json"], ctx.cwd);
-        ctx.ui.notify(JSON.stringify(payload, null, 2), "info");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand("code-index-live-start", {
-    description: "Start pi-code-index live indexing for the current repository.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["live", "start", "--json"], ctx.cwd);
-        ctx.ui.notify(JSON.stringify(payload, null, 2), "success");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand("code-index-live-stop", {
-    description: "Stop pi-code-index live indexing for the current repository.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["live", "stop", "--json"], ctx.cwd);
-        ctx.ui.notify(JSON.stringify(payload, null, 2), "success");
-      } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand("code-index-doctor", {
-    description: "Run pi-code-index setup and troubleshooting checks.",
-    handler: async (_args: string, ctx: CommandCtx) => {
-      try {
-        const payload = await runCli(pi, ["doctor", "--json"], ctx.cwd);
-        ctx.ui.notify(formatDoctorCommand(payload as Record<string, any>), "info");
+        const payload = await runCli(pi, spec.args, ctx.cwd) as Record<string, any>;
+        ctx.ui.notify(spec.format ? spec.format(payload) : JSON.stringify(payload, null, 2), spec.level);
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
