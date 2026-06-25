@@ -1,16 +1,16 @@
 # pi-code-index
 
-Runbook for the Pi code-index extension.
+Runbook for the Pi live code-index extension.
 
 ## What this is
 
-`pi-code-index` gives Pi code search and code-intelligence tools for the current repo.
+`pi-code-index` gives Pi live semantic code search and code-intelligence tools for the current repo.
 
 - Pi extension entrypoint: `index.ts`
 - CLI: `pi-code-index`
-- Fallback backend: local lexical JSON index, no Postgres required
-- Full backend: CocoIndex V1 + Postgres/pgvector
-- Daemon: Unix socket auto-start, warm CocoIndex resources, live polling watcher
+- Backend: CocoIndex V1 + Postgres/pgvector
+- Live mode: daemon-supervised polling watcher that refreshes the CocoIndex index after file changes
+- Daemon: Unix socket auto-start with warm CocoIndex resources
 
 Pi tools exposed:
 
@@ -38,9 +38,6 @@ Required:
 - Python 3.11+
 - `uv`
 - `git`
-
-Required for semantic/symbol/graph mode:
-
 - `podman`
 - CocoIndex extras: `uv sync --extra cocoindex`
 - Postgres + pgvector via `runtime/postgres/podman-pgvector.sh`
@@ -48,23 +45,7 @@ Required for semantic/symbol/graph mode:
 
 Do not use Docker for local backend development; use Podman.
 
-## Setup: lexical fallback
-
-Use this when you only need local lexical search.
-
-```bash
-cd ~/.pi/agent/extensions/pi-code-index
-scripts/setup.sh
-uv tool install -e .
-
-cd /path/to/repo
-pi-code-index init
-pi-code-index --no-daemon search --json --refresh "where is config loaded"
-```
-
-## Setup: CocoIndex/Postgres
-
-Use this for semantic search, symbols, graph, impact, and review context.
+## Setup
 
 ```bash
 cd ~/.pi/agent/extensions/pi-code-index
@@ -79,9 +60,12 @@ export PI_CODE_INDEX_BACKEND=cocoindex
 cd /path/to/repo
 pi-code-index init
 pi-code-index refresh --json
+pi-code-index live start --json
 pi-code-index search --json --top-k 8 "where is config loaded"
 pi-code-index status --json
 ```
+
+`PI_CODE_INDEX_BACKEND=auto` is accepted as a compatibility alias for `cocoindex`. `lexical` is not a supported backend.
 
 ## Start and maintain the daemon
 
@@ -106,6 +90,7 @@ Restart it after changing backend env vars, config files, or extension code:
 ```bash
 pi-code-index stop --json
 pi-code-index status --json
+pi-code-index live start --json
 ```
 
 Daemon files:
@@ -132,7 +117,7 @@ Stop it:
 pi-code-index live stop --json
 ```
 
-Live mode refreshes the configured backend after matching files change. Rapid edits are debounced.
+Live mode refreshes CocoIndex after matching files change. Rapid edits are debounced.
 
 ## Pi TUI runbook
 
@@ -184,13 +169,13 @@ pi-code-index status --json
 pi-code-index live status --json
 ```
 
-Expected healthy CocoIndex basics:
+Expected healthy basics:
 
 - `effective_backend` is `cocoindex`
 - Postgres URL is configured
 - pgvector runtime is reachable
 - `counts.files` and `counts.chunks` are non-zero after refresh
-- daemon lifecycle is `running` after a daemon command
+- live watcher is `running` after `pi-code-index live start --json`
 
 ## Troubleshooting
 

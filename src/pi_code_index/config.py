@@ -33,7 +33,7 @@ def validate_identifier(name: str, field_name: str = "identifier") -> str:
 
 @dataclass
 class GlobalConfig:
-    backend: str = "auto"
+    backend: str = "cocoindex"
     postgres_url: str = ""
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     socket_path: str = "~/.pi-code-index/daemon.sock"
@@ -56,7 +56,7 @@ class GlobalConfig:
 
 @dataclass
 class ProjectConfig:
-    backend: str = "auto"
+    backend: str = "cocoindex"
     table_name: str = "code_embeddings"
     chunk_size: int = 1000
     min_chunk_size: int = 120

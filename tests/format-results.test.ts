@@ -223,8 +223,8 @@ test("formatSimilarCodeResults clips snippets and preserves summary counts", () 
 });
 
 test("formatStatusCommand summarizes status without raw JSON dump", () => {
-  const text = formatStatusCommand({ ok: true, repo: "/repo", effective_backend: "lexical", requested_backend: "auto", counts: { files: 2, chunks: 3, symbols: 0, call_edges: 0 }, live: { running: false }, setup: { summary: { errors: 0, warnings: 1 } }, performance: { durations_ms: { last: 12, average: 9, max: 20 } } });
-  assert.match(text, /pi-code-index status: ok backend=lexical/);
+  const text = formatStatusCommand({ ok: true, repo: "/repo", effective_backend: "cocoindex", requested_backend: "auto", counts: { files: 2, chunks: 3, symbols: 0, call_edges: 0 }, live: { running: false }, setup: { summary: { errors: 0, warnings: 1 } }, performance: { durations_ms: { last: 12, average: 9, max: 20 } } });
+  assert.match(text, /pi-code-index status: ok backend=cocoindex requested=auto/);
   assert.match(text, /indexed: files=2 chunks=3 symbols=0 graph_edges=0/);
   assert.match(text, /setup: errors=0 warnings=1/);
   assert.doesNotMatch(text, /\{\n|"counts"/);
