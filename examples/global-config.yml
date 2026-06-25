@@ -1,0 +1,27 @@
+backend: "auto" # auto: use CocoIndex/Postgres when PI_CODE_INDEX_POSTGRES_URL or POSTGRES_URL is configured; otherwise lexical degraded mode
+# Prefer PI_CODE_INDEX_POSTGRES_URL; POSTGRES_URL is compatibility fallback. Leave empty here unless you want config-file Postgres.
+postgres_url: ""
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+socket_path: "~/.pi-code-index/daemon.sock"
+pid_path: "~/.pi-code-index/daemon.pid"
+log_path: "~/.pi-code-index/daemon.log"
+schema_name: "public"
+table_prefix: "pi_code_index"
+pipeline_version: "canonical-v1-ast-v1"
+
+# Daemon operations
+# daemon_request_timeout_seconds: 120.0
+# daemon_start_timeout_seconds: 4.0
+# daemon_handshake_retry_interval_seconds: 0.1
+# daemon_max_cached_repos: null
+# daemon_resource_idle_ttl_seconds: null
+
+# Live indexing defaults
+# live_poll_interval_seconds: 1.0
+# live_refresh_debounce_seconds: 0.25
+# live_stale_after_seconds: 300
+# live_max_consecutive_errors_before_stale: 3
+
+# Status/doctor output
+# setup_error_on_empty_globs: false
+# status_latest_errors_limit: 5
