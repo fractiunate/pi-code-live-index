@@ -19,15 +19,9 @@ Pi tools exposed:
 - `find_callers`, `find_callees`, `impact_analysis`
 - `repo_map`, `find_tests`, `find_similar_code`, `review_context`
 
-Pi slash commands exposed:
+Pi slash command exposed:
 
-- `/code-index-status`
-- `/code-index-refresh`
-- `/code-index-stop`
-- `/code-index-live-status`
-- `/code-index-live-start`
-- `/code-index-live-stop`
-- `/code-index-doctor`
+- `/code-index [status|refresh|doctor|stop|live status|live start|live stop]`
 
 ## Dependencies
 
@@ -115,8 +109,8 @@ After installing or changing the extension:
 
 ```text
 /reload
-/code-index-status
-/code-index-doctor
+/code-index status
+/code-index doctor
 ```
 
 Use `code_search` for broad questions, then `read` the listed files before editing.
