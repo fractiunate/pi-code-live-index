@@ -131,9 +131,9 @@ export function formatResults(payload: SearchPayload): { text: string; summary: 
     truncatedText: false,
   };
 
-  if (payload.error) return { text: `code_search failed: ${payload.error}`, summary };
+  if (payload.error) return { text: `code_search_local failed: ${payload.error}`, summary };
 
-  const lines = [`code_search: ${payload.query}`];
+  const lines = [`code_search_local: ${payload.query}`];
   if (payload.warning) lines.push(`Warning: ${payload.warning}`);
   if (!totalResults) {
     lines.push("No indexed matches found. Try `pi-code-index refresh` or broaden the query.");
@@ -164,7 +164,7 @@ export function formatResults(payload: SearchPayload): { text: string; summary: 
 
   let text = lines.join("\n");
   if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-    text = `${text.slice(0, MAX_TEXT_BYTES)}\n... [code_search display truncated; full structured results are in details]`;
+    text = `${text.slice(0, MAX_TEXT_BYTES)}\n... [code_search_local display truncated; full structured results are in details]`;
     summary.truncatedText = true;
   }
   return { text, summary };
@@ -252,7 +252,7 @@ export function formatSymbolSearchResults(payload: SymbolPayload): { text: strin
   const lines = [`symbol_search: ${payload.query ?? ""}`];
   if (payload.warning) lines.push(`Warning: ${payload.warning}`);
   if (!totalResults) {
-    lines.push("No indexed symbols found. Try `code_search` or refresh with enable_symbols=true.");
+    lines.push("No indexed symbols found. Try `code_search_local` or refresh with enable_symbols=true.");
     return { text: lines.join("\n"), summary };
   }
   const displayResults = payload.results!.slice(0, MAX_DISPLAY_RESULTS);
@@ -288,7 +288,7 @@ export function formatSymbolDefinitionResult(payload: SymbolPayload): { text: st
     if (payload.warning) lines.push(`Warning: ${payload.warning}`);
     const shown = matches.slice(0, MAX_DISPLAY_RESULTS);
     for (const [idx, match] of shown.entries()) lines.push(`${idx + 1}. ${symbolLine(match)}`);
-    if (!matches.length) lines.push("No definition found. Try `code_search`.");
+    if (!matches.length) lines.push("No definition found. Try `code_search_local`.");
     else if (summary.omittedResults > 0) lines.push(`\n... ${summary.omittedResults} more candidate${summary.omittedResults === 1 ? "" : "s"} omitted from display. Full matches are in details.`);
   }
   return { text: lines.join("\n"), summary };
@@ -470,7 +470,7 @@ async function runCli(pi: ExtensionAPI, args: string[], cwd: string): Promise<Se
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
-    name: "code_search",
+    name: "code_search_local",
     label: "Code Search",
     description:
       "Semantic search over the current repository. Use for conceptual questions like where behavior is implemented, then use read to inspect matched files.",
@@ -499,7 +499,7 @@ export default function (pi: ExtensionAPI) {
           ? "pi-code-index executable was not found. Install with `uv tool install -e /home/fractiunate/.pi/agent/extensions/pi-code-index` or run via `uv run pi-code-index`."
           : message;
         return {
-          content: [{ type: "text" as const, text: `code_search failed: ${hint}` }],
+          content: [{ type: "text" as const, text: `code_search_local failed: ${hint}` }],
           details: { query: params.query, top_k: topK, refresh, error: hint },
         };
       }
@@ -733,6 +733,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => ({
     systemPrompt:
       event.systemPrompt +
-      "\n\nCode search guidance: use `repo_map` for architecture orientation before broad edits, `find_tests` before choosing validation for a file/symbol/change, `find_similar_code` before adding repeated command/config patterns, and `review_context` before final review or handoff. Use `symbol_search`, `symbol_definition`, or `symbol_context` when looking for functions/classes/methods/modules by name or intent. Use `find_callers`, `find_callees`, or `impact_analysis` for caller/callee/blast-radius questions, then use `symbol_definition` or `read` to inspect exact source before editing. Use the `code_search` tool for broader semantic or conceptual repository questions. Large result sets may be compacted in the message; full structured results remain available in tool details.",
+      "\n\nCode search guidance: use `repo_map` for architecture orientation before broad edits, `find_tests` before choosing validation for a file/symbol/change, `find_similar_code` before adding repeated command/config patterns, and `review_context` before final review or handoff. Use `symbol_search`, `symbol_definition`, or `symbol_context` when looking for functions/classes/methods/modules by name or intent. Use `find_callers`, `find_callees`, or `impact_analysis` for caller/callee/blast-radius questions, then use `symbol_definition` or `read` to inspect exact source before editing. Use the `code_search_local` tool for broader semantic or conceptual repository questions. Large result sets may be compacted in the message; full structured results remain available in tool details.",
   }));
 }

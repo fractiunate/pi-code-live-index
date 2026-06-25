@@ -13,7 +13,7 @@ function result(index: number, code = "const value = 1;") {
   };
 }
 
-test("formatResults keeps code_search output compact and action-oriented", () => {
+test("formatResults keeps code_search_local output compact and action-oriented", () => {
   const formatted = formatResults({
     query: "where is search formatted",
     top_k: 2,
@@ -22,7 +22,7 @@ test("formatResults keeps code_search output compact and action-oriented", () =>
     results: [result(0), result(1)],
   });
 
-  assert.match(formatted.text, /code_search: where is search formatted/);
+  assert.match(formatted.text, /code_search_local: where is search formatted/);
   assert.match(formatted.text, /src\/file0.ts:1-2 score=0\.900/);
   assert.match(formatted.text, /Next: use `read` or open the listed file ranges/);
   assert.equal(formatted.summary.displayedResults, 2);
@@ -110,7 +110,7 @@ test("formatSymbolDefinitionResult handles resolved, ambiguous, and not found", 
   assert.match(ambiguous.text, /a.py:1-2/);
 
   const missing = formatSymbolDefinitionResult({ ok: true, target: "missing", definition: null, matches: [], warning: "symbol target not found" });
-  assert.match(missing.text, /Try `code_search`/);
+  assert.match(missing.text, /Try `code_search_local`/);
 });
 
 test("formatSymbolDefinitionResult reports omitted ambiguous matches", () => {
