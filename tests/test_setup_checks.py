@@ -98,8 +98,8 @@ def test_status_non_json_prints_required_live_summary(tmp_path: Path, monkeypatc
 
     assert code == 0
     assert "Backend: cocoindex (requested: auto)" in out
-    assert "Postgres: not configured (required)" in out
-    assert "Start Postgres: runtime/postgres/podman-pgvector.sh" in out
+    assert "Postgres: configured via runtime_default" in out
+    assert "Postgres auto-start: local Podman runtime" in out
 
 
 def test_empty_globs_are_warning_by_default(tmp_path: Path, monkeypatch):
@@ -128,15 +128,15 @@ def test_postgres_checks_are_psql_first_by_backend(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "auto")
     auto = run_setup_checks(repo)
     auto_url = next(check for check in auto["checks"] if check["id"] == "postgres.url")
-    assert auto_url["severity"] == "error"
-    assert auto_url["details"]["configured_url_source"] == "none"
-    assert "PI_CODE_INDEX_POSTGRES_URL" in auto_url["suggested_command"]
+    assert auto_url["severity"] == "info"
+    assert auto_url["details"]["configured_url_source"] == "runtime_default"
+    assert auto_url["details"]["auto_start_supported"] is True
 
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
     required = run_setup_checks(repo)
     by_id = {check["id"]: check for check in required["checks"]}
-    assert by_id["postgres.url"]["severity"] == "error"
-    assert by_id["postgres.reachable"]["details"]["live_check_performed"] is False
+    assert by_id["postgres.url"]["severity"] == "info"
+    assert by_id["postgres.reachable"]["details"]["live_check_performed"] is True
     assert by_id["postgres.reachable"]["suggested_command"] == "scripts/setup.sh --with-cocoindex --postgres-check"
 
 

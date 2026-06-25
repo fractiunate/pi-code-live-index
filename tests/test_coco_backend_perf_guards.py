@@ -42,11 +42,10 @@ def _fresh_repo(tmp_path: Path, chunk_strategy: str = "hybrid") -> Path:
     return repo
 
 
-def test_validate_postgres_config_raises_on_missing_url(monkeypatch: pytest.MonkeyPatch):
+def test_effective_postgres_url_uses_runtime_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
     monkeypatch.delenv("POSTGRES_URL", raising=False)
-    with pytest.raises(CocoIndexUnavailable, match="Postgres URL is required"):
-        _validate_postgres_config(_effective_postgres_url(GlobalConfig()))
+    assert _effective_postgres_url(GlobalConfig()) == "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
 
 
 def test_validate_postgres_config_rejects_bad_scheme():
@@ -74,7 +73,7 @@ def test_search_async_validates_postgres_before_embedder(tmp_path: Path, monkeyp
     pytest.importorskip("cocoindex")
     repo = _fresh_repo(tmp_path)
     project_cfg = load_project_config(repo)
-    global_cfg = GlobalConfig()
+    global_cfg = GlobalConfig(postgres_url="http://localhost:5432/db")
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
     monkeypatch.delenv("POSTGRES_URL", raising=False)
 
@@ -84,7 +83,7 @@ def test_search_async_validates_postgres_before_embedder(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("pi_code_index.coco_backend.SentenceTransformerEmbedder", _explode)
 
-    with pytest.raises(CocoIndexUnavailable, match="Postgres URL is required"):
+    with pytest.raises(CocoIndexUnavailable, match="invalid Postgres URL scheme"):
         asyncio.run(_search_async(repo, "config", 3, project_cfg, global_cfg, resources=None))
 
 

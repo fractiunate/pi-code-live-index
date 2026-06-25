@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .config import POSTGRES_COMPOSE_COMMAND, POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, postgres_url_config, load_global_config, load_project_config
+from .config import POSTGRES_COMPOSE_COMMAND, POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, is_runtime_default_postgres_url, postgres_url_config, load_global_config, load_project_config
 
 VALID_BACKENDS = {"auto", "cocoindex"}
-COCOINDEX_REQUIRED_WARNING = "CocoIndex/Postgres live indexing is required. Configure PI_CODE_INDEX_POSTGRES_URL and start Postgres with runtime/postgres/podman-pgvector.sh."
+COCOINDEX_REQUIRED_WARNING = "CocoIndex/Postgres live indexing is required. Pi uses the local Podman Postgres runtime by default; set PI_CODE_INDEX_POSTGRES_URL only for custom Postgres."
 
 
 def _redact_postgres_url(url: str | None) -> str | None:
@@ -20,11 +20,11 @@ def _redact_postgres_url(url: str | None) -> str | None:
 
 def postgres_summary() -> dict[str, object]:
     source, url = postgres_url_config()
-    return {"configured": source != "none", "configured_url_source": source, "url": _redact_postgres_url(url), "credentials_redacted": True, "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "compose_command": POSTGRES_COMPOSE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND}
+    return {"configured": True, "configured_url_source": source, "url": _redact_postgres_url(url), "credentials_redacted": True, "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "compose_command": POSTGRES_COMPOSE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND, "auto_start_supported": is_runtime_default_postgres_url(source, url), "auto_start_command": POSTGRES_LIFECYCLE_COMMAND, "podman_only": True}
 
 
 def _required_error(error: object) -> str:
-    return f"CocoIndex/Postgres live indexing is required but unavailable: {error}. Configure PI_CODE_INDEX_POSTGRES_URL, start Postgres with {POSTGRES_LIFECYCLE_COMMAND}, then validate with {POSTGRES_VALIDATION_COMMAND}."
+    return f"CocoIndex/Postgres live indexing is required but unavailable: {error}. Pi auto-starts the local Podman Postgres runtime by default; validate with {POSTGRES_VALIDATION_COMMAND}."
 
 
 def _with_backend_metadata(payload: dict[str, object], choice: "BackendChoice", *, fallback: bool = False, warning: str | None = None) -> dict[str, object]:
@@ -63,7 +63,7 @@ def _run_cocoindex(repo: Path, operation: str, func: Callable[[], dict[str, obje
     if postgres_url_config()[1] is None:
         return {"ok": False, "backend": "cocoindex", "requested_backend": choice.requested, "backend_fallback": False, "operation": operation, "repo": str(repo.resolve()), "error": _required_error("Postgres URL is required")}
     try:
-        return func()
+        return _with_backend_metadata(func(), choice)
     except Exception as exc:  # noqa: BLE001 - backend boundary returns JSON-safe errors
         return {"ok": False, "backend": "cocoindex", "requested_backend": choice.requested, "backend_fallback": False, "operation": operation, "repo": str(repo.resolve()), "error": _required_error(exc)}
 

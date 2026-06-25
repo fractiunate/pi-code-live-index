@@ -99,7 +99,7 @@ def test_coco_ranker_boosts_identifier_matches():
     assert results[0]["filename"] == "src/pi_code_index/config.py"
 
 
-def test_backend_auto_requires_cocoindex_without_postgres_env(tmp_path: Path, monkeypatch):
+def test_backend_auto_uses_runtime_default_without_postgres_env(tmp_path: Path, monkeypatch):
     repo = tmp_path
     (repo / ".git").mkdir()
     (repo / "settings.py").write_text("def load_config():\n    return {'debug': True}\n", encoding="utf-8")
@@ -109,12 +109,16 @@ def test_backend_auto_requires_cocoindex_without_postgres_env(tmp_path: Path, mo
     monkeypatch.delenv("PI_CODE_INDEX_BACKEND", raising=False)
 
     assert choose_backend(repo).name == "cocoindex"
+    def fail(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("pi_code_index.coco_backend.search", fail)
     payload = backend_search(repo, "config", top_k=1, refresh_first=True)
     assert payload["ok"] is False
     assert payload["backend"] == "cocoindex"
     assert payload["requested_backend"] == "cocoindex"
     assert payload["backend_fallback"] is False
-    assert "PI_CODE_INDEX_POSTGRES_URL" in payload["error"]
+    assert "local Podman Postgres runtime" in payload["error"]
 
 
 def test_unknown_backend_is_invalid(tmp_path: Path, monkeypatch):
@@ -148,15 +152,14 @@ def test_backend_auto_and_cocoindex_required_errors(tmp_path: Path, monkeypatch)
     assert auto["backend"] == "cocoindex"
     assert auto["requested_backend"] == "auto"
     assert auto["backend_fallback"] is False
-    assert "runtime/postgres/podman-pgvector.sh" in auto["error"]
+    assert "local Podman Postgres runtime" in auto["error"]
     assert "scripts/setup.sh --with-cocoindex --postgres-check" in auto["error"]
 
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
     required = backend_search(repo, "config", top_k=1, refresh_first=True)
     assert required["ok"] is False
     assert required["backend"] == "cocoindex"
-    assert "PI_CODE_INDEX_POSTGRES_URL" in required["error"]
-    assert "runtime/postgres/podman-pgvector.sh" in required["error"]
+    assert "local Podman Postgres runtime" in required["error"]
 
 
 def test_config_backend_precedence_env_project_global(tmp_path: Path, monkeypatch):
@@ -186,7 +189,7 @@ def test_config_backend_precedence_env_project_global(tmp_path: Path, monkeypatc
     assert choose_backend(repo).name == "cocoindex"
 
 
-def test_backend_cocoindex_without_postgres_url_reports_setup_error_without_connecting(tmp_path: Path, monkeypatch):
+def test_backend_cocoindex_runtime_default_reports_setup_error_without_connecting(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -204,23 +207,16 @@ def test_backend_cocoindex_without_postgres_url_reports_setup_error_without_conn
 
     assert payload["ok"] is False
     assert payload["backend"] == "cocoindex"
-    assert "Postgres URL is required" in payload["error"]
-    assert "PI_CODE_INDEX_POSTGRES_URL" in payload["error"]
-    assert "runtime/postgres/podman-pgvector.sh" in payload["error"]
+    assert "local Podman Postgres runtime" in payload["error"]
     assert "scripts/setup.sh --with-cocoindex --postgres-check" in payload["error"]
-    assert "create_pool called" not in payload["error"]
+    assert "create_pool called" in payload["error"]
 
 
-def test_effective_postgres_url_requires_configured_url(monkeypatch):
+def test_effective_postgres_url_uses_runtime_default(monkeypatch):
     monkeypatch.delenv("POSTGRES_URL", raising=False)
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
 
-    try:
-        _effective_postgres_url(GlobalConfig())
-    except CocoIndexUnavailable as exc:
-        assert "PI_CODE_INDEX_POSTGRES_URL" in str(exc)
-    else:
-        raise AssertionError("missing Postgres URL should fail before asyncpg defaults to localhost")
+    assert _effective_postgres_url(GlobalConfig()) == "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
 
 
 def test_config_postgres_url_precedence(tmp_path: Path, monkeypatch):

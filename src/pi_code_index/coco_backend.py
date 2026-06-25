@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from . import context_tools
-from .config import GlobalConfig, ProjectConfig, data_home, load_global_config, load_project_config, validate_identifier
+from .config import GlobalConfig, ProjectConfig, data_home, load_global_config, load_project_config, postgres_url_config, validate_identifier
 from .indexer import chunk_text, iter_files, refresh as refresh_file_index, score_tokens, tokenize
 
 try:  # pragma: no cover - optional dependency boundary
@@ -332,7 +332,7 @@ def _require_postgres_url(url: str) -> str:
 
 
 def _effective_postgres_url(cfg: GlobalConfig) -> str:
-    return _require_postgres_url(os.environ.get("PI_CODE_INDEX_POSTGRES_URL") or os.environ.get("POSTGRES_URL") or cfg.postgres_url)
+    return _require_postgres_url(os.environ.get("PI_CODE_INDEX_POSTGRES_URL") or os.environ.get("POSTGRES_URL") or cfg.postgres_url or postgres_url_config()[1])
 
 
 def _validate_postgres_config(url: str) -> str:

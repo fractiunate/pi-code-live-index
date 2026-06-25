@@ -213,19 +213,19 @@ def test_retry_operation_new():
     assert "assert True" not in test_hit["code"]
 
 
-def test_context_cli_direct_json_and_daemon_dispatch_require_cocoindex(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_context_cli_direct_json_and_daemon_dispatch_use_runtime_default(tmp_path: Path, monkeypatch, capsys) -> None:
     repo = make_repo(tmp_path)
     monkeypatch.delenv("POSTGRES_URL", raising=False)
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
 
-    assert main(["--no-daemon", "context", "repo-map", "--json", "--repo", str(repo), "--target", "src", "--depth", "5"]) == 1
+    assert main(["--no-daemon", "context", "repo-map", "--json", "--repo", str(repo), "--target", "src", "--depth", "5"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is False
+    assert payload["ok"] is True
     assert payload["backend"] == "cocoindex"
 
     response = handle({"type": "find_tests", "repo": str(repo), "targets": ["src/pkg/config.py"], "top_k": 999})
-    assert response["ok"] is False
+    assert response["ok"] is True
     assert response["backend"] == "cocoindex"
 
     bad = handle({"type": "find_similar_code", "repo": str(repo)})

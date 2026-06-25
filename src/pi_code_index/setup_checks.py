@@ -4,12 +4,13 @@ import importlib.util
 import os
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from .backend import VALID_BACKENDS, choose_backend
-from .config import POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, POSTGRES_EXPORT_COMMAND, global_config_path, load_global_config, load_project_config, postgres_url_config, project_config_path
+from .config import POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, POSTGRES_EXPORT_COMMAND, global_config_path, is_runtime_default_postgres_url, load_global_config, load_project_config, postgres_url_config, project_config_path
 from .indexer import iter_files, repo_root
 
 
@@ -33,6 +34,29 @@ def _postgres_reachable(host: str, port: int, timeout: float = 0.25) -> tuple[bo
             return True, None
     except OSError as exc:
         return False, str(exc)
+
+
+def ensure_runtime_postgres_started() -> dict[str, Any]:
+    source, url = postgres_url_config()
+    valid, details, error = _postgres_url_details(url)
+    if not valid:
+        return {"ok": False, "started": False, "source": source, "url": url, "error": error}
+    host, port = str(details.get("host")), int(details.get("port", 5432))
+    reachable, reach_error = _postgres_reachable(host, port)
+    if reachable:
+        return {"ok": True, "started": False, "source": source, "url": url, "reachable": True}
+    if not is_runtime_default_postgres_url(source, url):
+        return {"ok": False, "started": False, "source": source, "url": url, "reachable": False, "error": reach_error}
+    if shutil.which("podman") is None:
+        return {"ok": False, "started": False, "source": source, "url": url, "reachable": False, "error": "podman is not installed; install Podman or set PI_CODE_INDEX_POSTGRES_URL to a reachable Postgres"}
+    root = Path(__file__).resolve().parents[2]
+    script = root / POSTGRES_LIFECYCLE_COMMAND
+    run = subprocess.run([str(script)], cwd=root, timeout=60, capture_output=True, text=True, check=False)
+    for _ in range(20):
+        reachable, reach_error = _postgres_reachable(host, port, timeout=0.5)
+        if reachable:
+            return {"ok": True, "started": True, "source": source, "url": url, "reachable": True, "returncode": run.returncode}
+    return {"ok": False, "started": run.returncode == 0, "source": source, "url": url, "reachable": False, "returncode": run.returncode, "stdout": run.stdout[-1000:], "stderr": run.stderr[-1000:], "error": reach_error}
 
 
 def _runtime_stale(socket_path: Path, pid_path: Path) -> tuple[bool, dict[str, Any]]:
@@ -72,6 +96,9 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
 
     checks.append(_check("tool.uv", shutil.which("uv") is not None, "error", "uv is installed" if shutil.which("uv") else "uv is not installed", suggested_command="Install uv and rerun scripts/setup.sh"))
     checks.append(_check("tool.node_npm", shutil.which("node") is not None and shutil.which("npm") is not None, "warning", "node and npm are available" if shutil.which("node") and shutil.which("npm") else "node/npm not found", suggested_command="npm install"))
+    url_source, postgres_url = postgres_url_config()
+    if is_runtime_default_postgres_url(url_source, postgres_url):
+        checks.append(_check("tool.podman", shutil.which("podman") is not None, "warning", "podman is available for Postgres auto-start" if shutil.which("podman") else "podman is not installed; daemon Postgres auto-start will not work"))
     checks.append(_check("python.import", importlib.util.find_spec("pi_code_index") is not None, "error", "import pi_code_index succeeds"))
     checks.append(_check("cli.help", shutil.which("uv") is not None, "error", "CLI can be run through uv" if shutil.which("uv") else "uv is required to run pi-code-index --help", suggested_command="uv run pi-code-index --help"))
 
@@ -102,8 +129,7 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
 
     coco_import_ok = importlib.util.find_spec("cocoindex") is not None
     checks.append(_check("cocoindex.optional_deps", coco_import_ok, coco_severity, "CocoIndex optional dependencies are available" if coco_import_ok else "CocoIndex optional dependencies are not installed", suggested_command="scripts/setup.sh --with-cocoindex"))
-    url_source, postgres_url = postgres_url_config()
-    pg_details = {"configured_url_source": url_source, "preferred_env": "PI_CODE_INDEX_POSTGRES_URL", "compat_env": "POSTGRES_URL", "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND}
+    pg_details = {"configured_url_source": url_source, "preferred_env": "PI_CODE_INDEX_POSTGRES_URL", "compat_env": "POSTGRES_URL", "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND, "auto_start_supported": is_runtime_default_postgres_url(url_source, postgres_url), "auto_start_command": POSTGRES_LIFECYCLE_COMMAND, "podman_only": True}
     if postgres_url:
         url_valid, url_details, url_error = _postgres_url_details(postgres_url)
         if url_valid:
@@ -128,8 +154,9 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
         if host:
             reachable_ok, reachable_error = _postgres_reachable(str(host), int(port))
             reachable_details.update({"live_check_performed": True, "host": host, "port": port, "reachable": reachable_ok})
-            reachable_severity = "warning" if reachable_ok else "error"
-            reachable_message = f"Postgres at {host}:{port} is reachable" if reachable_ok else f"Postgres at {host}:{port} is not reachable: {reachable_error}"
+            runtime_default = is_runtime_default_postgres_url(url_source, postgres_url)
+            reachable_severity = "warning" if (reachable_ok or runtime_default) else "error"
+            reachable_message = f"Postgres at {host}:{port} is reachable" if reachable_ok else (f"Postgres at {host}:{port} is not reachable; daemon bootstrap will try Podman auto-start." if runtime_default else f"Postgres at {host}:{port} is not reachable: {reachable_error}")
         else:
             reachable_ok = False
             reachable_severity = "error"

@@ -85,6 +85,53 @@ def test_request_or_start_restarts_on_global_config_mtime_mismatch(tmp_path: Pat
     assert events == ["handshake", "stop", "start", "handshake", "refresh"]
 
 
+def test_start_daemon_bootstraps_postgres_and_sets_child_env(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(cli, "cleanup_stale_runtime_files", lambda: {})
+    monkeypatch.setattr(cli, "ensure_runtime_postgres_started", lambda: calls.append({"bootstrap": True}) or {"ok": True})
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            calls.append({"args": args, "env": kwargs.get("env")})
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+
+    cli.start_daemon()
+
+    assert calls[0] == {"bootstrap": True}
+    assert calls[1]["env"]["PI_CODE_INDEX_POSTGRES_URL"] == "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
+
+
+def test_repo_request_auto_starts_live_watcher(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("pi_code_index.daemon.search", lambda repo, query, top_k, refresh, coco_resources=None: {"ok": True, "backend": "cocoindex", "results": []})
+    registry = LiveWatcherRegistry()
+
+    payload = handle({"type": "search", "repo": str(repo), "query": "config"}, live_watchers=registry)
+    live = handle({"type": "live_status", "repo": str(repo)}, live_watchers=registry)
+
+    assert payload["ok"] is True
+    assert live["live"]["running"] is True
+
+
+def test_live_status_does_not_auto_start_watcher(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    registry = LiveWatcherRegistry()
+
+    live = handle({"type": "live_status", "repo": str(repo)}, live_watchers=registry)
+
+    assert live["live"]["running"] is False
+
+
 def test_serve_ignores_empty_socket_probe(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -252,7 +299,7 @@ def test_daemon_status_exposes_coco_resource_cache_state(tmp_path: Path, monkeyp
     assert entry["resources"]["postgres_pool"] == "cold"
     assert entry["postgres"]["credentials_redacted"] is True
     assert "postgres://" not in str(entry["postgres"])
-    assert payload["daemon"]["postgres_lifecycle_guidance"]["performed_by_daemon"] is False
+    assert payload["daemon"]["postgres_lifecycle_guidance"]["performed_by_daemon"] is True
     assert "pi-code-index stop --json" in payload["daemon"]["restart_reminder"]
     assert payload["resource_state_seen_by_backend"]["embedder"] == "cold"
 
@@ -332,7 +379,7 @@ def test_daemon_status_includes_live_state(tmp_path: Path, monkeypatch):
 
     assert payload["ok"] is True
     assert payload["live"]["repo"] == str(repo.resolve())
-    assert payload["live"]["running"] is False
+    assert payload["live"]["running"] is True
     assert payload["live"]["stale"] is False
 
 

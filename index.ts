@@ -453,12 +453,12 @@ export function formatDoctorCommand(payload: Record<string, any>): string {
   ];
   for (const check of failing) lines.push(`- ${check.id ?? check.name ?? "check"}: ${check.message ?? check.error ?? "failed"}`);
   if (failing.length < checks.filter((check: any) => check?.ok === false).length) lines.push("- additional failures omitted; run `pi-code-index doctor --json`.");
-  lines.push("Next: fix listed errors or run `runtime/postgres/podman-pgvector.sh` for CocoIndex/Postgres setup.");
+  lines.push("Next: fix listed errors; Pi auto-starts local Podman Postgres when possible. Use `runtime/postgres/podman-pgvector.sh` only for troubleshooting.");
   return lines.join("\n");
 }
 
 async function runCli(pi: ExtensionAPI, args: string[], cwd: string): Promise<SearchPayload | Record<string, unknown>> {
-  const result = await pi.exec("uv", ["run", "--project", EXTENSION_DIR, "pi-code-index", ...args], { cwd, timeout: 120_000 });
+  const result = await pi.exec("uv", ["run", "--project", EXTENSION_DIR, "pi-code-index", ...args], { cwd, timeout: 240_000 });
   const raw = (result.stdout || result.stderr || "").trim();
   try {
     return JSON.parse(raw);

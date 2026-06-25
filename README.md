@@ -40,8 +40,8 @@ Required:
 - `git`
 - `podman`
 - CocoIndex extras: `uv sync --extra cocoindex`
-- Postgres + pgvector via `runtime/postgres/podman-pgvector.sh`
-- `PI_CODE_INDEX_POSTGRES_URL=postgres://cocoindex:cocoindex@localhost:5432/cocoindex`
+- Postgres + pgvector via local Podman auto-start
+- Default local URL: `postgres://cocoindex:cocoindex@localhost:5432/cocoindex`
 
 Do not use Docker for local backend development; use Podman.
 
@@ -51,19 +51,14 @@ Do not use Docker for local backend development; use Podman.
 cd ~/.pi/agent/extensions/pi-code-index
 uv sync --extra dev --extra cocoindex
 npm install
-runtime/postgres/podman-pgvector.sh
-
-export PI_CODE_INDEX_POSTGRES_URL=postgres://cocoindex:cocoindex@localhost:5432/cocoindex
-export POSTGRES_URL=$PI_CODE_INDEX_POSTGRES_URL
-export PI_CODE_INDEX_BACKEND=cocoindex
 
 cd /path/to/repo
 pi-code-index init
-pi-code-index refresh --json
-pi-code-index live start --json
 pi-code-index search --json --top-k 8 "where is config loaded"
 pi-code-index status --json
 ```
+
+The daemon uses the default local Postgres URL, starts the Podman pgvector runtime when needed, and starts live indexing for the repo on normal tool requests. It does not write the default database password to repo or global config files.
 
 `PI_CODE_INDEX_BACKEND=auto` is accepted as a compatibility alias for `cocoindex`.
 
@@ -90,7 +85,6 @@ Restart it after changing backend env vars, config files, or extension code:
 ```bash
 pi-code-index stop --json
 pi-code-index status --json
-pi-code-index live start --json
 ```
 
 Daemon files:
@@ -103,21 +97,17 @@ Daemon files:
 
 ## Live indexing
 
-Start live polling for a repo:
+Live polling starts automatically for a repo on normal daemon-backed tool requests.
+
+Inspect or stop it manually:
 
 ```bash
 cd /path/to/repo
-pi-code-index live start --json
 pi-code-index live status --json
-```
-
-Stop it:
-
-```bash
 pi-code-index live stop --json
 ```
 
-Live mode refreshes CocoIndex after matching files change. Rapid edits are debounced.
+`live stop` stops the watcher now; the next normal repo request may start it again. Live mode refreshes CocoIndex after matching files change. Rapid edits are debounced.
 
 ## Pi TUI runbook
 
@@ -127,7 +117,6 @@ After installing or changing the extension:
 /reload
 /code-index-status
 /code-index-doctor
-/code-index-live-start
 ```
 
 Use `code_search` for broad questions, then `read` the listed files before editing.
@@ -155,9 +144,6 @@ Run Postgres integration when pgvector is available:
 
 ```bash
 runtime/postgres/podman-pgvector.sh
-export PI_CODE_INDEX_POSTGRES_URL=postgres://cocoindex:cocoindex@localhost:5432/cocoindex
-export POSTGRES_URL=$PI_CODE_INDEX_POSTGRES_URL
-export PI_CODE_INDEX_BACKEND=cocoindex
 uv run --extra cocoindex pytest tests/test_cocoindex_postgres_integration.py -q
 ```
 
@@ -204,9 +190,6 @@ command -v pi-code-index
 ```bash
 cd ~/.pi/agent/extensions/pi-code-index
 runtime/postgres/podman-pgvector.sh
-export PI_CODE_INDEX_POSTGRES_URL=postgres://cocoindex:cocoindex@localhost:5432/cocoindex
-export POSTGRES_URL=$PI_CODE_INDEX_POSTGRES_URL
-export PI_CODE_INDEX_BACKEND=cocoindex
 pi-code-index stop --json
 pi-code-index doctor --json
 ```
