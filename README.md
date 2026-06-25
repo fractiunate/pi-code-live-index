@@ -215,4 +215,3 @@ runtime/postgres/init/01-vector.sql
 runtime/postgres/podman-pgvector.sh
 ```
 
-The `examples/` directory is compatibility/sample space only.
