@@ -39,6 +39,64 @@ Required:
 
 Do not use Docker for local backend development; use Podman.
 
+## Agent setup steps
+
+Run these from the repository root. They assume the repo is already checked out to a Pi extensions directory.
+
+1. Install dependencies:
+
+```bash
+uv sync --extra dev --extra cocoindex
+npm install
+```
+
+2. Start Postgres + pgvector:
+
+```bash
+runtime/postgres/podman-pgvector.sh
+```
+
+This creates the `pi-code-index-postgres` container, the `pi-code-index-postgres-data` volume, and enables the `vector` extension.
+
+3. Make the Postgres URL persistent:
+
+Create or update `$HOME/.pi-code-index/config.yml`:
+
+```yaml
+backend: cocoindex
+postgres_url: postgres://cocoindex:cocoindex@localhost:5432/cocoindex
+```
+
+4. Verify the CLI and backend:
+
+```bash
+uv run pi-code-index --help
+uv run pi-code-index doctor --json
+uv run pi-code-index status --json
+```
+
+5. Smoke-test search:
+
+```bash
+uv run pi-code-index search --json --refresh --top-k 3 "extension API"
+```
+
+6. Enable in Pi:
+
+Add the extension entry to Pi settings. If the repo is checked out as `pi-code-index` under the Pi extensions directory, add:
+
+```text
++extensions/pi-code-index/index.ts
+```
+
+Then in the Pi TUI:
+
+```text
+/reload
+/code-index status
+/code-index doctor
+```
+
 ## Setup
 
 ```bash
