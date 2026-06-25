@@ -78,7 +78,7 @@ def make_retry_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def test_find_similar_code_lexical_source_role_prior_ranks_source_over_docs(tmp_path: Path, monkeypatch) -> None:
+def test_find_similar_code_source_role_prior_ranks_source_over_docs(tmp_path: Path, monkeypatch) -> None:
     repo = make_retry_repo(tmp_path)
     indexer.refresh(repo)
     payload = context_tools.find_similar_code(repo, query="retry backoff helper", scope="chunks", top_k=8)
@@ -89,7 +89,7 @@ def test_find_similar_code_lexical_source_role_prior_ranks_source_over_docs(tmp_
     assert first_source < first_doc
 
 
-def test_find_similar_code_lexical_docs_target_inverts_prior(tmp_path: Path, monkeypatch) -> None:
+def test_find_similar_code_docs_target_inverts_prior(tmp_path: Path, monkeypatch) -> None:
     repo = make_retry_repo(tmp_path)
     indexer.refresh(repo)
     payload = context_tools.find_similar_code(repo, target="README.md", query="documentation guide retry backoff", top_k=5)
@@ -98,7 +98,7 @@ def test_find_similar_code_lexical_docs_target_inverts_prior(tmp_path: Path, mon
     assert "penalty:docs_for_source_query" not in payload["results"][0]["evidence"]
 
 
-def test_find_similar_code_lexical_files_scope_aggregates_by_file(tmp_path: Path, monkeypatch) -> None:
+def test_find_similar_code_files_scope_aggregates_by_file(tmp_path: Path, monkeypatch) -> None:
     repo = make_retry_repo(tmp_path)
     indexer.refresh(repo)
     payload = context_tools.find_similar_code(repo, query="retry backoff helper", mode="hybrid", scope="files", top_k=8)
@@ -108,7 +108,7 @@ def test_find_similar_code_lexical_files_scope_aggregates_by_file(tmp_path: Path
     assert payload["results"][0]["metadata"]["aggregated_candidates"]
 
 
-def test_find_similar_code_lexical_symbols_scope_warns_and_returns_chunks(tmp_path: Path, monkeypatch) -> None:
+def test_find_similar_code_symbols_scope_warns_and_returns_chunks(tmp_path: Path, monkeypatch) -> None:
     repo = make_retry_repo(tmp_path)
     indexer.refresh(repo)
     payload = context_tools.find_similar_code(repo, query="retry backoff helper", mode="hybrid", scope="symbols", top_k=3)
@@ -137,7 +137,7 @@ def test_find_similar_code_components_and_evidence_present(tmp_path: Path, monke
     assert "role_prior" in result["similarity"]
     assert "final" in result["score_components"]
     assert result["evidence"]
-    assert result["metadata"]["ranking_profile"] == "similar-code-v2-lexical-fallback"
+    assert result["metadata"]["ranking_profile"] == "similar-code-v2"
 
 
 def test_find_similar_code_explicit_cocoindex_semantic_symbols_errors_without_data(tmp_path: Path, monkeypatch) -> None:

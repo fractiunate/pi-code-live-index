@@ -78,7 +78,7 @@ def _files_from_index(data: lexical.IndexData | None) -> list[str]:
     return sorted({chunk.filename for chunk in data.chunks})
 
 
-def _base(repo: Path, operation: str, backend: str = "lexical") -> dict[str, Any]:
+def _base(repo: Path, operation: str, backend: str = "cocoindex") -> dict[str, Any]:
     return {
         "ok": True,
         "backend": backend,
@@ -91,21 +91,21 @@ def _base(repo: Path, operation: str, backend: str = "lexical") -> dict[str, Any
         "pipeline_version": None,
         "capabilities": {
             "repo_hierarchy": False,
-            "repo_map": "path_only" if backend == "lexical" else True,
+            "repo_map": True,
             "symbols": False,
             "references": False,
             "call_graph": False,
             "test_links": False,
-            "find_tests": "path_heuristic",
-            "similar_code": "lexical_only",
-            "review_context": "lexical_composition",
+            "find_tests": "heuristic",
+            "similar_code": "hybrid",
+            "review_context": "context_composition",
             "languages": ["python", "typescript", "javascript"],
         },
-        "warning": "CocoIndex/Postgres is required for symbol, graph, durable test-link, and semantic similar-code context; returned lexical heuristics only" if backend == "lexical" else None,
+        "warning": None,
     }
 
 
-def repo_map(repo: Path, target: object | None = None, depth: int = 2, include_symbols: bool = True, include_tests: bool = False, refresh_first: bool = False, backend: str = "lexical") -> dict[str, Any]:
+def repo_map(repo: Path, target: object | None = None, depth: int = 2, include_symbols: bool = True, include_tests: bool = False, refresh_first: bool = False, backend: str = "cocoindex") -> dict[str, Any]:
     repo = repo.resolve(); depth = clamp(depth, 0, 5)
     data = _load_or_refresh(repo, refresh_first)
     files = _files_from_index(data)
@@ -181,7 +181,7 @@ def _target_file(target: object) -> str:
     return text
 
 
-def find_tests(repo: Path, targets: list[object], top_k: int = 20, include_indirect: bool = False, refresh_first: bool = False, backend: str = "lexical") -> dict[str, Any]:
+def find_tests(repo: Path, targets: list[object], top_k: int = 20, include_indirect: bool = False, refresh_first: bool = False, backend: str = "cocoindex") -> dict[str, Any]:
     repo = repo.resolve(); top_k = clamp(top_k, 1, 100); data = _load_or_refresh(repo, refresh_first)
     tests = _candidate_test_files(repo, data)
     results: list[dict[str, Any]] = []
@@ -196,10 +196,10 @@ def find_tests(repo: Path, targets: list[object], top_k: int = 20, include_indir
             if Path(test).parent.name.lower() in TEST_DIRS: evidence.append("nearest_test_directory"); score += .1
             if Path(test).suffix == ".py": evidence.append("framework_pattern"); cmd = f"uv run pytest {test}"
             else: evidence.append("framework_pattern"); cmd = "npm run test:ts"
-            conf = min(0.5 if backend == "lexical" else 0.8, score)
+            conf = min(0.8, score)
             if evidence:
                 label = "high" if conf >= .75 else "medium" if conf >= .45 else "low"
-                results.append({"test_file": test, "test_symbol": None, "test_symbol_id": None, "target_file": tf, "target_symbol_id": None, "score": round(min(score,1.0),6), "confidence": round(conf,6), "evidence": evidence, "recommended_command": cmd, "metadata": {"source": "heuristic-v1" if backend == "lexical" else "test-link-heuristic-v1", "framework": "pytest" if test.endswith('.py') else "unknown", "confidence_label": label}})
+                results.append({"test_file": test, "test_symbol": None, "test_symbol_id": None, "target_file": tf, "target_symbol_id": None, "score": round(min(score,1.0),6), "confidence": round(conf,6), "evidence": evidence, "recommended_command": cmd, "metadata": {"source": "test-link-heuristic-v1", "framework": "pytest" if test.endswith('.py') else "unknown", "confidence_label": label}})
     results.sort(key=lambda r: (-float(r["score"]), str(r["test_file"])))
     payload = _base(repo, "find_tests", backend); payload.update({"targets": [str(t) for t in targets], "target": ", ".join(str(t) for t in targets), "top_k": top_k, "include_indirect": include_indirect, "results": results[:top_k], "truncated": len(results) > top_k, "truncation": {"candidate_budget": len(tests), "omitted_candidates": 0, "omitted_results": max(0, len(results)-top_k)}})
     if not results:
@@ -315,7 +315,7 @@ def _shared_token_evidence(query_tokens: dict[str, float], chunk_tokens: dict[st
 
 def _score_similar_candidate(*, mode: str, lexical_score: float, symbol_score: float, ast: float, structure: float, freshness: float, role_prior: float, penalty: float) -> tuple[float, dict[str, float]]:
     semantic = 0.0
-    if mode == "lexical" or mode == "semantic":
+    if mode == "semantic":
         weights = {"semantic": 0.0, "lexical": 0.70, "symbol": 0.10, "ast": 0.08, "structure": 0.07, "freshness": 0.05}
     else:
         weights = {"semantic": 0.0, "lexical": 0.50, "symbol": 0.17, "ast": 0.13, "structure": 0.12, "freshness": 0.08}
@@ -369,11 +369,11 @@ def _aggregate_file_results(results: list[dict[str, Any]], top_k: int) -> list[d
     return files[:top_k]
 
 
-def find_similar_code(repo: Path, target: object | None = None, query: str | None = None, top_k: int = 12, mode: str = "hybrid", scope: str = "chunks", exclude_self: bool = True, refresh_first: bool = False, backend: str = "lexical") -> dict[str, Any]:
+def find_similar_code(repo: Path, target: object | None = None, query: str | None = None, top_k: int = 12, mode: str = "hybrid", scope: str = "chunks", exclude_self: bool = True, refresh_first: bool = False, backend: str = "cocoindex") -> dict[str, Any]:
     if not target and not query:
         return {"ok": False, "backend": backend, "operation": "find_similar_code", "repo": str(repo.resolve()), "error": "find_similar_code requires target or query"}
     repo = repo.resolve(); top_k = clamp(top_k, 1, 100); data = _load_or_refresh(repo, refresh_first)
-    ranking_profile = "similar-code-v2-lexical-fallback" if backend == "lexical" else "similar-code-v2"
+    ranking_profile = "similar-code-v2"
     if data is None:
         payload = _base(repo, "find_similar_code", backend); payload.update({"target": target, "query": query, "mode": mode, "scope": scope, "exclude_self": exclude_self, "top_k": top_k, "ranking_profile": ranking_profile, "results": [], "truncated": False, "truncation": {}}); return payload
     target_file = _target_file(target) if target else None
@@ -422,10 +422,8 @@ def find_similar_code(repo: Path, target: object | None = None, query: str | Non
             penalty += 0.05; evidence.append("penalty:docs_for_source_query")
         if query_role == "source" and candidate_role == "test":
             penalty += 0.03; evidence.append("penalty:test_for_source_query")
-        if backend == "lexical":
-            evidence.append("fallback:lexical_chunk_similarity")
         score, components = _score_similar_candidate(mode=mode, lexical_score=lexical_score, symbol_score=symbol_score, ast=ast, structure=structure, freshness=freshness, role_prior=role_prior, penalty=penalty)
-        result = {"score": round(score, 6), "confidence": round(min(0.85 if backend != "lexical" else 0.70, score + 0.10), 6), "similarity": {"semantic": 0.0, "lexical": round(lexical_score, 6), "structure": round(structure, 6), "symbol": round(symbol_score, 6), "ast": round(ast, 6), "role_prior": round(role_prior, 6), "freshness": round(freshness, 6), "penalty": round(penalty, 6)}, "score_components": components, "filename": c.filename, "start_line": c.start_line, "end_line": c.end_line, "code": c.code[:12000], "symbol": symbol, "symbol_id": None, "chunk_id": c.id, "risk": _risk_label(candidate_role, chunk_kind, lexical_score, symbol_score, path_role), "evidence": evidence, "metadata": {"excluded_self": exclude_self, "ranking_profile": ranking_profile, "candidate_kind": "chunk", "content_role": candidate_role, "chunk_kind": chunk_kind, "source": ranking_profile, "candidate_key": f"chunk:{c.id}", "freshness_status": "current", "semantic_available": False, "lexical_available": True, "symbol_available": symbol is not None, "ast_available": chunk_kind != "text", "fallback_reason": "lexical_chunk_similarity"}}
+        result = {"score": round(score, 6), "confidence": round(min(0.85, score + 0.10), 6), "similarity": {"semantic": 0.0, "lexical": round(lexical_score, 6), "structure": round(structure, 6), "symbol": round(symbol_score, 6), "ast": round(ast, 6), "role_prior": round(role_prior, 6), "freshness": round(freshness, 6), "penalty": round(penalty, 6)}, "score_components": components, "filename": c.filename, "start_line": c.start_line, "end_line": c.end_line, "code": c.code[:12000], "symbol": symbol, "symbol_id": None, "chunk_id": c.id, "risk": _risk_label(candidate_role, chunk_kind, lexical_score, symbol_score, path_role), "evidence": evidence, "metadata": {"excluded_self": exclude_self, "ranking_profile": ranking_profile, "candidate_kind": "chunk", "content_role": candidate_role, "chunk_kind": chunk_kind, "source": ranking_profile, "candidate_key": f"chunk:{c.id}", "freshness_status": "current", "semantic_available": False, "lexical_available": True, "symbol_available": symbol is not None, "ast_available": chunk_kind != "text"}}
         kind_rank = 0 if chunk_kind == "function" else 1 if chunk_kind == "class" else 3 if candidate_role == "source" else 4 if candidate_role == "config" else 5 if candidate_role == "test" else 6 if candidate_role == "docs" else 7
         ranked.append((score, -kind_rank, lexical_score, -len(c.code), f"{c.filename}:{c.start_line}:{c.id}", result))
     ranked.sort(key=lambda item: (-item[0], -item[1], -item[2], -item[3], item[4]))
@@ -433,9 +431,9 @@ def find_similar_code(repo: Path, target: object | None = None, query: str | Non
     all_results = [item[-1] for item in ranked if item[0] >= min_score]
     warning = None
     if scope == "symbols":
-        warning = "symbols unavailable in lexical fallback; returned strong chunk matches only" if backend == "lexical" else "symbols unavailable; returned chunk candidates"
+        warning = "symbols unavailable; returned chunk candidates"
         for result in all_results:
-            result["evidence"] = [*result["evidence"], "fallback:symbols_unavailable_returned_chunks"]
+            result["evidence"] = [*result["evidence"], "symbols_unavailable_returned_chunks"]
     results = _aggregate_file_results(all_results, top_k) if scope == "files" else all_results[:top_k]
     payload = _base(repo, "find_similar_code", backend)
     if warning:
@@ -448,7 +446,7 @@ def find_similar_code(repo: Path, target: object | None = None, query: str | Non
     return payload
 
 
-def review_context(repo: Path, targets: list[object], top_k: int = 30, include_map: bool = True, include_tests: bool = True, include_similar: bool = True, include_impact: bool = True, refresh_first: bool = False, backend: str = "lexical") -> dict[str, Any]:
+def review_context(repo: Path, targets: list[object], top_k: int = 30, include_map: bool = True, include_tests: bool = True, include_similar: bool = True, include_impact: bool = True, refresh_first: bool = False, backend: str = "cocoindex") -> dict[str, Any]:
     if not targets:
         return {"ok": False, "backend": backend, "operation": "review_context", "repo": str(repo.resolve()), "error": "review_context requires at least one target"}
     top_k = clamp(top_k, 1, 200)
@@ -456,7 +454,7 @@ def review_context(repo: Path, targets: list[object], top_k: int = 30, include_m
     if include_map:
         m = repo_map(repo, targets[0], 2, True, include_tests, refresh_first, backend); sections.append({"section": "architecture", "items": m.get("nodes", [])[:5]})
     if include_impact:
-        sections.append({"section": "impact", "items": [], "warning": "graph impact omitted in lexical context" if backend == "lexical" else None})
+        sections.append({"section": "impact", "items": [], "warning": None})
     if include_tests:
         t = find_tests(repo, targets, min(top_k, 100), False, refresh_first, backend); likely_tests = t.get("results", []); sections.append({"section": "tests", "items": likely_tests[:8]}); commands.extend(r["recommended_command"] for r in likely_tests[:5] if r.get("recommended_command"))
     if include_similar:

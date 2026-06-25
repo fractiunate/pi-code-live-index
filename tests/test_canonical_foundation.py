@@ -358,11 +358,11 @@ def test_resolve_symbol_short_method_suffix_and_file_line_innermost(tmp_path: Pa
     assert warning == "ambiguous target; retry with symbol_id or qualified_name"
 
 
-def test_lexical_backend_is_rejected_for_symbols_and_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_unknown_backend_is_rejected_for_symbols_and_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "json")
 
     for call in (
         lambda: backend_symbol_search(repo, "load config", 3, {"kind": "function"}),
@@ -371,7 +371,7 @@ def test_lexical_backend_is_rejected_for_symbols_and_graph(tmp_path: Path, monke
         lambda: backend_find_callers(repo, "compute_tax"),
         lambda: backend_impact_analysis(repo, "compute_tax"),
     ):
-        with pytest.raises(ValueError, match="invalid backend 'lexical'"):
+        with pytest.raises(ValueError, match="invalid backend 'json'"):
             call()
 
 

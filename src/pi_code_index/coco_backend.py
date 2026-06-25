@@ -16,7 +16,7 @@ from typing import Annotated, Any
 
 from . import context_tools
 from .config import GlobalConfig, ProjectConfig, data_home, load_global_config, load_project_config, validate_identifier
-from .indexer import chunk_text, iter_files, refresh as refresh_lexical_index, score_tokens, tokenize
+from .indexer import chunk_text, iter_files, refresh as refresh_file_index, score_tokens, tokenize
 
 try:  # pragma: no cover - optional dependency boundary
     import asyncpg
@@ -1436,7 +1436,7 @@ def refresh(repo: Path, project_cfg: ProjectConfig | None = None, global_cfg: Gl
         finally:
             await pool.close()
     counts = asyncio.run(_migrate())
-    refresh_lexical_index(repo)
+    refresh_file_index(repo)
     counts.setdefault("ast_chunks", 0)
     counts.setdefault("recursive_chunks", 0)
     counts.setdefault("symbols", 0)
@@ -2209,7 +2209,7 @@ def _similar_score_components(
         weights = {"semantic": 0.70, "lexical": 0.10, "symbol": 0.10, "ast": 0.05, "structure": 0.0, "freshness": 0.05}
     elif mode == "hybrid" and semantic_available:
         weights = {"semantic": 0.40, "lexical": 0.30, "symbol": 0.10, "ast": 0.08, "structure": 0.07, "freshness": 0.05}
-    elif mode == "lexical" or mode == "semantic":
+    elif mode == "semantic":
         weights = {"semantic": 0.0, "lexical": 0.70, "symbol": 0.10, "ast": 0.08, "structure": 0.07, "freshness": 0.05}
     else:
         weights = {"semantic": 0.0, "lexical": 0.50, "symbol": 0.17, "ast": 0.13, "structure": 0.12, "freshness": 0.08}
@@ -2618,8 +2618,6 @@ async def _find_similar_code_async(repo: Path, target: object | None, query: str
 def find_similar_code(repo: Path, target: object | None = None, query: str | None = None, top_k: int = 12, mode: str = "hybrid", scope: str = "chunks", exclude_self: bool = True, refresh_first: bool = False, resources: CocoBackendResources | None = None) -> dict[str, object]:
     repo = repo.resolve(); project_cfg = load_project_config(repo); global_cfg = load_global_config(); top_k = max(1, min(int(top_k), 100))
     if refresh_first: refresh(repo, project_cfg, global_cfg)
-    if mode == "lexical":
-        return _coco_context_payload(repo, context_tools.find_similar_code(repo, target, query, top_k, mode, scope, exclude_self, False, "cocoindex"), project_cfg, global_cfg)
     return resources.run(_find_similar_code_async(repo, target, query, top_k, mode, scope, exclude_self, project_cfg, global_cfg, resources)) if resources is not None else asyncio.run(_find_similar_code_async(repo, target, query, top_k, mode, scope, exclude_self, project_cfg, global_cfg))
 
 

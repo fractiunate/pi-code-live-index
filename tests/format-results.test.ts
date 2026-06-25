@@ -135,8 +135,8 @@ test("formatGraphResult shows compact caller lines and callsite", () => {
 });
 
 test("formatGraphResult does not duplicate message as warning", () => {
-  const res = formatGraphResult({ ok: true, operation: "find_callers", target: "pkg.target", available: false, unsupported: true, status: "unsupported", warning: "Unsupported on lexical backend", message: "Unsupported on lexical backend: call graph tools require CocoIndex/Postgres reference indexing", results: [] });
-  const occurrences = res.text.split("Unsupported on lexical backend").length - 1;
+  const res = formatGraphResult({ ok: true, operation: "find_callers", target: "pkg.target", available: false, unsupported: true, status: "unsupported", warning: "Unsupported without CocoIndex/Postgres", message: "Unsupported without CocoIndex/Postgres: call graph tools require reference indexing", results: [] });
+  const occurrences = res.text.split("Unsupported without CocoIndex/Postgres").length - 1;
   assert.equal(occurrences, 1);
 });
 
@@ -148,11 +148,11 @@ test("formatGraphResult labels unsupported graph payloads instead of no results"
     available: false,
     unsupported: true,
     status: "unsupported",
-    message: "Unsupported on lexical backend: call graph tools require CocoIndex/Postgres reference indexing",
+    message: "Unsupported without CocoIndex/Postgres: call graph tools require reference indexing",
     results: [],
   });
 
-  assert.match(formatted.text, /Unsupported on lexical backend/);
+  assert.match(formatted.text, /Unsupported without CocoIndex\/Postgres/);
   assert.doesNotMatch(formatted.text, /No call graph results found/);
 });
 
@@ -164,11 +164,11 @@ test("formatImpactResult labels unsupported impact payloads", () => {
     available: false,
     unsupported: true,
     status: "unsupported",
-    message: "Unsupported on lexical backend: impact_analysis requires CocoIndex/Postgres reference indexing",
+    message: "Unsupported without CocoIndex/Postgres: impact_analysis requires reference indexing",
     summary: { affected_files: 0 },
   });
 
-  assert.match(formatted.text, /Unsupported on lexical backend/);
+  assert.match(formatted.text, /Unsupported without CocoIndex\/Postgres/);
 });
 
 test("formatImpactResult summarizes affected files and tests", () => {

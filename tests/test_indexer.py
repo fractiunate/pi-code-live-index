@@ -117,18 +117,18 @@ def test_backend_auto_requires_cocoindex_without_postgres_env(tmp_path: Path, mo
     assert "PI_CODE_INDEX_POSTGRES_URL" in payload["error"]
 
 
-def test_backend_lexical_is_invalid(tmp_path: Path, monkeypatch):
+def test_unknown_backend_is_invalid(tmp_path: Path, monkeypatch):
     repo = tmp_path
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "json")
 
     try:
         choose_backend(repo)
     except ValueError as exc:
-        assert "invalid backend 'lexical'" in str(exc)
+        assert "invalid backend 'json'" in str(exc)
     else:  # pragma: no cover
-        raise AssertionError("lexical backend should be rejected")
+        raise AssertionError("unknown backend should be rejected")
 
 
 def test_backend_auto_and_cocoindex_required_errors(tmp_path: Path, monkeypatch):

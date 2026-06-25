@@ -65,7 +65,7 @@ pi-code-index search --json --top-k 8 "where is config loaded"
 pi-code-index status --json
 ```
 
-`PI_CODE_INDEX_BACKEND=auto` is accepted as a compatibility alias for `cocoindex`. `lexical` is not a supported backend.
+`PI_CODE_INDEX_BACKEND=auto` is accepted as a compatibility alias for `cocoindex`.
 
 ## Start and maintain the daemon
 
