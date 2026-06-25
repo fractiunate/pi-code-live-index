@@ -67,7 +67,7 @@ const SimilarCodeParams = Type.Object({
   target: Type.Optional(Type.String()),
   query: Type.Optional(Type.String()),
   top_k: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
-  mode: Type.Optional(Type.Union([Type.Literal("semantic"), Type.Literal("lexical"), Type.Literal("hybrid")])),
+  mode: Type.Optional(Type.Union([Type.Literal("semantic"), Type.Literal("hybrid")])),
   scope: Type.Optional(Type.Union([Type.Literal("chunks"), Type.Literal("symbols"), Type.Literal("files")])),
   exclude_self: Type.Optional(Type.Boolean()),
   refresh: Type.Optional(Type.Boolean()),
@@ -453,12 +453,12 @@ export function formatDoctorCommand(payload: Record<string, any>): string {
   ];
   for (const check of failing) lines.push(`- ${check.id ?? check.name ?? "check"}: ${check.message ?? check.error ?? "failed"}`);
   if (failing.length < checks.filter((check: any) => check?.ok === false).length) lines.push("- additional failures omitted; run `pi-code-index doctor --json`.");
-  lines.push("Next: fix listed errors or run `runtime/postgres/podman-pgvector.sh` for CocoIndex/Postgres setup.");
+  lines.push("Next: fix listed errors; Pi auto-starts local Podman Postgres when possible. Use `runtime/postgres/podman-pgvector.sh` only for troubleshooting.");
   return lines.join("\n");
 }
 
 async function runCli(pi: ExtensionAPI, args: string[], cwd: string): Promise<SearchPayload | Record<string, unknown>> {
-  const result = await pi.exec("uv", ["run", "--project", EXTENSION_DIR, "pi-code-index", ...args], { cwd, timeout: 120_000 });
+  const result = await pi.exec("uv", ["run", "--project", EXTENSION_DIR, "pi-code-index", ...args], { cwd, timeout: 240_000 });
   const raw = (result.stdout || result.stderr || "").trim();
   try {
     return JSON.parse(raw);
@@ -675,7 +675,7 @@ export default function (pi: ExtensionAPI) {
     label: "Find Similar Code",
     description: "Find similar chunks, symbols, or files to detect duplicates and drift risk.",
     parameters: SimilarCodeParams,
-    async execute(_id: string, params: { target?: string; query?: string; top_k?: number; mode?: "semantic" | "lexical" | "hybrid"; scope?: "chunks" | "symbols" | "files"; exclude_self?: boolean; refresh?: boolean }, _signal: AbortSignal, _onUpdate: unknown, ctx: { cwd: string }) {
+    async execute(_id: string, params: { target?: string; query?: string; top_k?: number; mode?: "semantic" | "hybrid"; scope?: "chunks" | "symbols" | "files"; exclude_self?: boolean; refresh?: boolean }, _signal: AbortSignal, _onUpdate: unknown, ctx: { cwd: string }) {
       const topK = Math.max(1, Math.min(Number(params.top_k ?? 12), 100));
       const args = ["context", "similar", "--json", "--top-k", String(topK), "--mode", params.mode ?? "hybrid", "--scope", params.scope ?? "chunks", params.exclude_self === false ? "--no-exclude-self" : "--exclude-self"];
       if (params.query) args.push("--query", params.query);
@@ -790,6 +790,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => ({
     systemPrompt:
       event.systemPrompt +
-      "\n\nCode search guidance: use `repo_map` for architecture orientation before broad edits, `find_tests` before choosing validation for a file/symbol/change, `find_similar_code` before adding repeated command/config/fallback patterns, and `review_context` before final review or handoff. Use `symbol_search`, `symbol_definition`, or `symbol_context` when looking for functions/classes/methods/modules by name or intent. Use `find_callers`, `find_callees`, or `impact_analysis` for caller/callee/blast-radius questions, then use `symbol_definition` or `read` to inspect exact source before editing. Use the `code_search` tool for broader semantic or conceptual repository questions. Large result sets may be compacted in the message; full structured results remain available in tool details.",
+      "\n\nCode search guidance: use `repo_map` for architecture orientation before broad edits, `find_tests` before choosing validation for a file/symbol/change, `find_similar_code` before adding repeated command/config patterns, and `review_context` before final review or handoff. Use `symbol_search`, `symbol_definition`, or `symbol_context` when looking for functions/classes/methods/modules by name or intent. Use `find_callers`, `find_callees`, or `impact_analysis` for caller/callee/blast-radius questions, then use `symbol_definition` or `read` to inspect exact source before editing. Use the `code_search` tool for broader semantic or conceptual repository questions. Large result sets may be compacted in the message; full structured results remain available in tool details.",
   }));
 }

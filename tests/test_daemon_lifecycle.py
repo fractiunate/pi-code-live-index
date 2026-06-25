@@ -60,7 +60,7 @@ def test_request_or_start_restarts_on_global_config_mtime_mismatch(tmp_path: Pat
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cfg = cli.global_config_path()
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text("backend: lexical\n", encoding="utf-8")
+    cfg.write_text("backend: cocoindex\n", encoding="utf-8")
     current_mtime = cli.global_config_mtime()
     events: list[str] = []
     handshakes = iter([
@@ -85,12 +85,60 @@ def test_request_or_start_restarts_on_global_config_mtime_mismatch(tmp_path: Pat
     assert events == ["handshake", "stop", "start", "handshake", "refresh"]
 
 
+def test_start_daemon_bootstraps_postgres_and_sets_child_env(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(cli, "cleanup_stale_runtime_files", lambda: {})
+    monkeypatch.setattr(cli, "ensure_runtime_postgres_started", lambda: calls.append({"bootstrap": True}) or {"ok": True})
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            calls.append({"args": args, "env": kwargs.get("env")})
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+
+    cli.start_daemon()
+
+    assert calls[0] == {"bootstrap": True}
+    assert calls[1]["env"]["PI_CODE_INDEX_POSTGRES_URL"] == "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
+
+
+def test_repo_request_auto_starts_live_watcher(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("pi_code_index.daemon.search", lambda repo, query, top_k, refresh, coco_resources=None: {"ok": True, "backend": "cocoindex", "results": []})
+    registry = LiveWatcherRegistry()
+
+    payload = handle({"type": "search", "repo": str(repo), "query": "config"}, live_watchers=registry)
+    live = handle({"type": "live_status", "repo": str(repo)}, live_watchers=registry)
+
+    assert payload["ok"] is True
+    assert live["live"]["running"] is True
+
+
+def test_live_status_does_not_auto_start_watcher(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    registry = LiveWatcherRegistry()
+
+    live = handle({"type": "live_status", "repo": str(repo)}, live_watchers=registry)
+
+    assert live["live"]["running"] is False
+
+
 def test_serve_ignores_empty_socket_probe(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
+    monkeypatch.setattr("pi_code_index.daemon.backend_status", lambda repo, coco_resources=None: {"ok": True, "backend": "cocoindex", "counts": {}})
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
@@ -117,7 +165,8 @@ def test_daemon_status_reports_version_protocol_and_config_mtime(tmp_path: Path,
     repo.mkdir()
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
+    monkeypatch.setattr("pi_code_index.daemon.backend_status", lambda repo, coco_resources=None: {"ok": True, "backend": "cocoindex", "counts": {}})
 
     payload = handle({"type": "status", "repo": str(repo)}, config_mtime=12345, resource_cache=BackendResourceCache())
 
@@ -126,7 +175,8 @@ def test_daemon_status_reports_version_protocol_and_config_mtime(tmp_path: Path,
     assert payload["daemon"]["protocol_version"] == PROTOCOL_VERSION
     assert payload["daemon"]["global_config_mtime"] == 12345
     assert payload["daemon"]["socket_path"]
-    assert payload["daemon_resource_cache"] == {"entries": 0, "resources": []}
+    assert payload["daemon_resource_cache"]["entries"] >= 1
+    assert payload["daemon_resource_cache"]["resources"][0]["backend"] == "cocoindex"
 
 
 def test_daemon_reuses_coco_resources_for_repeated_searches(tmp_path: Path, monkeypatch):
@@ -249,7 +299,7 @@ def test_daemon_status_exposes_coco_resource_cache_state(tmp_path: Path, monkeyp
     assert entry["resources"]["postgres_pool"] == "cold"
     assert entry["postgres"]["credentials_redacted"] is True
     assert "postgres://" not in str(entry["postgres"])
-    assert payload["daemon"]["postgres_lifecycle_guidance"]["performed_by_daemon"] is False
+    assert payload["daemon"]["postgres_lifecycle_guidance"]["performed_by_daemon"] is True
     assert "pi-code-index stop --json" in payload["daemon"]["restart_reminder"]
     assert payload["resource_state_seen_by_backend"]["embedder"] == "cold"
 
@@ -322,13 +372,14 @@ def test_daemon_status_includes_live_state(tmp_path: Path, monkeypatch):
     repo.mkdir()
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("pi_code_index.daemon.backend_status", lambda repo, coco_resources=None: {"ok": True, "backend": "cocoindex", "counts": {}})
     registry = LiveWatcherRegistry()
 
     payload = handle({"type": "status", "repo": str(repo)}, live_watchers=registry)
 
     assert payload["ok"] is True
     assert payload["live"]["repo"] == str(repo.resolve())
-    assert payload["live"]["running"] is False
+    assert payload["live"]["running"] is True
     assert payload["live"]["stale"] is False
 
 
@@ -365,6 +416,7 @@ def test_daemon_request_metrics_count_successes_and_errors(tmp_path: Path, monke
     repo.mkdir()
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("pi_code_index.daemon.backend_status", lambda repo, coco_resources=None: {"ok": True, "backend": "cocoindex", "counts": {}})
 
     handle({"type": "status", "repo": str(repo)})
     payload = handle({"type": "status", "repo": str(repo)})
@@ -405,29 +457,23 @@ def test_live_watcher_reports_refresh_errors_and_stale(tmp_path: Path, monkeypat
     assert status["live"]["stale_reason"] == "refresh_failed"
 
 
-def test_live_watcher_makes_lexical_search_see_file_edit(tmp_path: Path, monkeypatch):
+def test_live_watcher_refreshes_cocoindex_after_file_edit(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
     source = repo / "example.py"
     source.write_text("print('hello')\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
+    calls: list[Path] = []
+    monkeypatch.setattr("pi_code_index.daemon.refresh", lambda path: calls.append(path) or {"ok": True, "backend": "cocoindex"})
     registry = LiveWatcherRegistry()
 
-    handle({"type": "refresh", "repo": str(repo)}, live_watchers=registry)
-    before = handle({"type": "search", "repo": str(repo), "query": "changed_live_token"}, live_watchers=registry)
     handle({"type": "live_start", "repo": str(repo), "poll_interval": 0.05}, live_watchers=registry)
     source.write_text("print('changed_live_token')\n", encoding="utf-8")
     deadline = time.time() + 2.0
-    after: dict[str, Any] = {"results": []}
-    while time.time() < deadline:
-        after = handle({"type": "search", "repo": str(repo), "query": "changed_live_token"}, live_watchers=registry)
-        if after["results"] and "changed_live_token" in after["results"][0]["code"]:
-            break
+    while not calls and time.time() < deadline:
         time.sleep(0.05)
     handle({"type": "live_stop", "repo": str(repo)}, live_watchers=registry)
 
-    assert before["results"] == [] or "changed_live_token" not in before["results"][0]["code"]
-    assert after["results"]
-    assert "changed_live_token" in after["results"][0]["code"]
+    assert calls == [repo.resolve()]

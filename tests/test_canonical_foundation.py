@@ -358,39 +358,21 @@ def test_resolve_symbol_short_method_suffix_and_file_line_innermost(tmp_path: Pa
     assert warning == "ambiguous target; retry with symbol_id or qualified_name"
 
 
-def test_lexical_symbol_operations_return_safe_fallbacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_unknown_backend_is_rejected_for_symbols_and_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "json")
 
-    search_payload = backend_symbol_search(repo, "load config", 3, {"kind": "function"})
-    definition_payload = backend_symbol_definition(repo, "load_config")
-    context_payload = backend_symbol_context(repo, "load_config", 2)
-
-    assert search_payload["ok"] is True
-    assert search_payload["backend"] == "lexical"
-    assert search_payload["results"] == []
-    assert "requires CocoIndex" in search_payload["warning"]
-    assert definition_payload["definition"] is None
-    assert context_payload["children"] == []
-
-
-def test_lexical_graph_operations_are_marked_unsupported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
-
-    callers = backend_find_callers(repo, "compute_tax")
-    impact = backend_impact_analysis(repo, "compute_tax")
-
-    for payload in (callers, impact):
-        assert payload["ok"] is True
-        assert payload["available"] is False
-        assert payload["unsupported"] is True
-        assert payload["status"] == "unsupported"
-        assert "Unsupported on lexical backend" in payload["warning"]
+    for call in (
+        lambda: backend_symbol_search(repo, "load config", 3, {"kind": "function"}),
+        lambda: backend_symbol_definition(repo, "load_config"),
+        lambda: backend_symbol_context(repo, "load_config", 2),
+        lambda: backend_find_callers(repo, "compute_tax"),
+        lambda: backend_impact_analysis(repo, "compute_tax"),
+    ):
+        with pytest.raises(ValueError, match="invalid backend 'json'"):
+            call()
 
 
 def test_daemon_metadata_and_resource_key_include_canonical_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -12,8 +12,8 @@ from typing import Any
 
 from . import PROTOCOL_VERSION, __version__
 from .backend import find_callees as find_callees_index, find_callers as find_callers_index, find_similar_code as find_similar_code_index, find_tests as find_tests_index, impact_analysis as impact_analysis_index, postgres_summary, refresh as refresh_index, repo_map as repo_map_index, review_context as review_context_index, search as search_index, status as backend_status, symbol_context as symbol_context_index, symbol_definition as symbol_definition_index, symbol_search as symbol_search_index
-from .config import POSTGRES_EXPORT_COMMAND, POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, global_config_path, index_path, load_global_config, project_config_path, write_default_configs
-from .setup_checks import run_setup_checks
+from .config import POSTGRES_EXPORT_COMMAND, POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, global_config_path, index_path, load_global_config, postgres_url_config, project_config_path, write_default_configs
+from .setup_checks import ensure_runtime_postgres_started, run_setup_checks
 from .daemon import global_config_mtime, pid_path, send_request, serve, socket_path
 from .indexer import repo_root
 
@@ -35,17 +35,17 @@ def _print_status_summary(payload: dict[str, Any]) -> None:
     postgres = payload.get("postgres") if isinstance(payload.get("postgres"), dict) else {}
     effective = backend.get("backend") or backend.get("effective_backend")
     requested = backend.get("requested_backend") or effective
-    degraded = "yes" if effective == "lexical" else "no"
-    print(f"Backend: {effective} (requested: {requested}, degraded: {degraded})")
+    print(f"Backend: {effective} (requested: {requested})")
     if postgres.get("configured"):
         source = "PI_CODE_INDEX_POSTGRES_URL" if postgres.get("configured_url_source") == "pi_code_index" else postgres.get("configured_url_source")
         print(f"Postgres: configured via {source}")
+        if postgres.get("configured_url_source") == "runtime_default":
+            print(f"Postgres auto-start: local Podman runtime ({POSTGRES_LIFECYCLE_COMMAND})")
         print("Full semantic/symbol/graph features: available when index feature gates are enabled")
     else:
-        required = " (required)" if requested == "cocoindex" else ""
-        print(f"Postgres: not configured{required}")
-        print("Full semantic/symbol/graph features: unavailable until Postgres is configured")
-    print(f"Start Postgres: {POSTGRES_LIFECYCLE_COMMAND}")
+        print("Postgres: not configured (required)")
+        print("Live semantic/symbol/graph features are unavailable until Postgres is configured")
+    print(f"Manual Postgres start/troubleshooting: {POSTGRES_LIFECYCLE_COMMAND}")
     print(f"Validate: {POSTGRES_VALIDATION_COMMAND}")
 
 
@@ -56,7 +56,7 @@ def _print_doctor_summary(payload: dict[str, Any]) -> None:
         if check.get("severity") == "error" and not check.get("ok"):
             print(f"Error: {check.get('message')}")
             if check.get("id") == "postgres.url":
-                print(f"Set URL: {POSTGRES_EXPORT_COMMAND}")
+                print(f"Default URL: {POSTGRES_EXPORT_COMMAND}")
             break
 
 
@@ -179,13 +179,19 @@ def start_daemon() -> None:
     cfg = load_global_config()
     log_path = Path(cfg.log_path).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.setdefault("PI_CODE_INDEX_POSTGRES_URL", postgres_url_config()[1])
+    bootstrap = ensure_runtime_postgres_started()
     with log_path.open("ab") as log:
+        if not bootstrap.get("ok"):
+            log.write(("Postgres auto-start warning: " + json.dumps(bootstrap, ensure_ascii=False) + "\n").encode("utf-8"))
         subprocess.Popen(
             [sys.executable, "-m", "pi_code_index.cli", "daemon"],
             stdout=log,
             stderr=log,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
+            env=env,
         )
 
 
@@ -340,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     p_similar.add_argument("target", nargs="?")
     p_similar.add_argument("--json", action="store_true", dest="as_json")
     p_similar.add_argument("--top-k", type=_bounded_int("top-k",1,100), default=12)
-    p_similar.add_argument("--mode", choices=["semantic", "lexical", "hybrid"], default="hybrid")
+    p_similar.add_argument("--mode", choices=["semantic", "hybrid"], default="hybrid")
     p_similar.add_argument("--scope", choices=["chunks", "symbols", "files"], default="chunks")
     p_similar.add_argument("--exclude-self", action=argparse.BooleanOptionalAction, default=True)
     p_similar.add_argument("--query")

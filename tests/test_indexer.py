@@ -99,7 +99,7 @@ def test_coco_ranker_boosts_identifier_matches():
     assert results[0]["filename"] == "src/pi_code_index/config.py"
 
 
-def test_backend_auto_uses_lexical_without_postgres_env(tmp_path: Path, monkeypatch):
+def test_backend_auto_uses_runtime_default_without_postgres_env(tmp_path: Path, monkeypatch):
     repo = tmp_path
     (repo / ".git").mkdir()
     (repo / "settings.py").write_text("def load_config():\n    return {'debug': True}\n", encoding="utf-8")
@@ -108,32 +108,34 @@ def test_backend_auto_uses_lexical_without_postgres_env(tmp_path: Path, monkeypa
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
     monkeypatch.delenv("PI_CODE_INDEX_BACKEND", raising=False)
 
-    assert choose_backend(repo).name == "lexical"
+    assert choose_backend(repo).name == "cocoindex"
+    def fail(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("pi_code_index.coco_backend.search", fail)
     payload = backend_search(repo, "config", top_k=1, refresh_first=True)
-    assert payload["backend"] == "lexical"
-    assert payload["requested_backend"] == "auto"
+    assert payload["ok"] is False
+    assert payload["backend"] == "cocoindex"
+    assert payload["requested_backend"] == "cocoindex"
     assert payload["backend_fallback"] is False
-    assert "Lexical degraded mode" in payload["warnings"][0]
-    assert payload["results"]
+    assert "local Podman Postgres runtime" in payload["error"]
 
 
-def test_backend_lexical_forced_even_with_postgres_env(tmp_path: Path, monkeypatch):
+def test_unknown_backend_is_invalid(tmp_path: Path, monkeypatch):
     repo = tmp_path
     (repo / ".git").mkdir()
-    (repo / "settings.py").write_text("def load_config():\n    return {'debug': True}\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
-    monkeypatch.setenv("PI_CODE_INDEX_POSTGRES_URL", "postgres://cocoindex:cocoindex@localhost:5432/cocoindex")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "json")
 
-    assert choose_backend(repo).name == "lexical"
-    payload = backend_status(repo)
-    assert payload["backend"] == "lexical"
-    assert payload["requested_backend"] == "lexical"
-    assert payload["backend_fallback"] is False
-    assert any("Lexical degraded mode" in warning for warning in payload["warnings"])
+    try:
+        choose_backend(repo)
+    except ValueError as exc:
+        assert "invalid backend 'json'" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("unknown backend should be rejected")
 
 
-def test_backend_auto_fallback_and_cocoindex_required_errors(tmp_path: Path, monkeypatch):
+def test_backend_auto_and_cocoindex_required_errors(tmp_path: Path, monkeypatch):
     repo = tmp_path
     (repo / ".git").mkdir()
     (repo / "settings.py").write_text("def load_config():\n    return {'debug': True}\n", encoding="utf-8")
@@ -145,18 +147,19 @@ def test_backend_auto_fallback_and_cocoindex_required_errors(tmp_path: Path, mon
 
     monkeypatch.setattr("pi_code_index.coco_backend.search", fail)
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "auto")
-    fallback = backend_search(repo, "config", top_k=1, refresh_first=True)
-    assert fallback["backend"] == "lexical"
-    assert fallback["backend_fallback"] is True
-    assert "runtime/postgres/podman-pgvector.sh" in fallback["warnings"][-1]
-    assert "scripts/setup.sh --with-cocoindex --postgres-check" in fallback["warnings"][-1]
+    auto = backend_search(repo, "config", top_k=1, refresh_first=True)
+    assert auto["ok"] is False
+    assert auto["backend"] == "cocoindex"
+    assert auto["requested_backend"] == "auto"
+    assert auto["backend_fallback"] is False
+    assert "local Podman Postgres runtime" in auto["error"]
+    assert "scripts/setup.sh --with-cocoindex --postgres-check" in auto["error"]
 
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
     required = backend_search(repo, "config", top_k=1, refresh_first=True)
     assert required["ok"] is False
     assert required["backend"] == "cocoindex"
-    assert "PI_CODE_INDEX_POSTGRES_URL" in required["error"]
-    assert "runtime/postgres/podman-pgvector.sh" in required["error"]
+    assert "local Podman Postgres runtime" in required["error"]
 
 
 def test_config_backend_precedence_env_project_global(tmp_path: Path, monkeypatch):
@@ -169,16 +172,16 @@ def test_config_backend_precedence_env_project_global(tmp_path: Path, monkeypatc
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
 
     global_config_path().parent.mkdir(parents=True, exist_ok=True)
-    global_config_path().write_text("backend: lexical\n", encoding="utf-8")
+    global_config_path().write_text("backend: auto\n", encoding="utf-8")
     project_config_path(repo).parent.mkdir(parents=True, exist_ok=True)
     project_config_path(repo).write_text("backend: cocoindex\n", encoding="utf-8")
 
-    assert load_global_config().backend == "lexical"
+    assert load_global_config().backend == "auto"
     assert load_project_config(repo).backend == "cocoindex"
     assert choose_backend(repo).name == "cocoindex"
 
     project_config_path(repo).write_text("backend: auto\n", encoding="utf-8")
-    assert choose_backend(repo).name == "lexical"
+    assert choose_backend(repo).name == "cocoindex"
 
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
     assert load_global_config().backend == "cocoindex"
@@ -186,7 +189,7 @@ def test_config_backend_precedence_env_project_global(tmp_path: Path, monkeypatc
     assert choose_backend(repo).name == "cocoindex"
 
 
-def test_backend_cocoindex_without_postgres_url_reports_setup_error_without_connecting(tmp_path: Path, monkeypatch):
+def test_backend_cocoindex_runtime_default_reports_setup_error_without_connecting(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -204,23 +207,16 @@ def test_backend_cocoindex_without_postgres_url_reports_setup_error_without_conn
 
     assert payload["ok"] is False
     assert payload["backend"] == "cocoindex"
-    assert "Postgres URL is required" in payload["error"]
-    assert "PI_CODE_INDEX_POSTGRES_URL" in payload["error"]
-    assert "runtime/postgres/podman-pgvector.sh" in payload["error"]
+    assert "local Podman Postgres runtime" in payload["error"]
     assert "scripts/setup.sh --with-cocoindex --postgres-check" in payload["error"]
-    assert "create_pool called" not in payload["error"]
+    assert "create_pool called" in payload["error"]
 
 
-def test_effective_postgres_url_requires_configured_url(monkeypatch):
+def test_effective_postgres_url_uses_runtime_default(monkeypatch):
     monkeypatch.delenv("POSTGRES_URL", raising=False)
     monkeypatch.delenv("PI_CODE_INDEX_POSTGRES_URL", raising=False)
 
-    try:
-        _effective_postgres_url(GlobalConfig())
-    except CocoIndexUnavailable as exc:
-        assert "PI_CODE_INDEX_POSTGRES_URL" in str(exc)
-    else:
-        raise AssertionError("missing Postgres URL should fail before asyncpg defaults to localhost")
+    assert _effective_postgres_url(GlobalConfig()) == "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
 
 
 def test_config_postgres_url_precedence(tmp_path: Path, monkeypatch):

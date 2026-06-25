@@ -385,6 +385,7 @@ class LiveWatcherRegistry:
 _DEFAULT_RESOURCE_CACHE = BackendResourceCache()
 _DEFAULT_LIVE_WATCHERS = LiveWatcherRegistry()
 _DEFAULT_METRICS = RequestMetrics()
+_AUTO_LIVE_TYPES = {"search", "refresh", "symbol_search", "symbol_definition", "symbol_context", "find_callers", "find_callees", "impact_analysis", "repo_map", "find_tests", "find_similar_code", "review_context", "status"}
 
 
 def send_request(payload: dict[str, Any], timeout: float = 5.0) -> dict[str, Any]:
@@ -413,7 +414,7 @@ def _daemon_status(resource_cache: BackendResourceCache, live_watchers: LiveWatc
         "pid_path": str(pid_path()),
         "log_path": str(Path(cfg.log_path).expanduser()),
         "daemon_resource_cache": resource_cache.status(),
-        "postgres_lifecycle_guidance": {"lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "compose_command": POSTGRES_COMPOSE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND, "performed_by_daemon": False},
+        "postgres_lifecycle_guidance": {"lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "compose_command": POSTGRES_COMPOSE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND, "performed_by_daemon": True},
         "restart_reminder": DAEMON_RESTART_REMINDER,
         "performance": metrics.status(),
         **daemon_metadata(config_mtime),
@@ -438,6 +439,8 @@ def handle(
             meta = daemon_metadata(config_mtime)
             restart_required = payload.get("protocol_version") != PROTOCOL_VERSION or payload.get("client_version") != __version__ or payload.get("global_config_mtime") != meta["global_config_mtime"]
             return {"ok": not restart_required, "restart_required": restart_required, **meta, "lifecycle_state": "restart_required" if restart_required else "running"}
+        if typ in _AUTO_LIVE_TYPES:
+            live_watchers.start(repo_root(Path(payload.get("repo") or ".")), load_global_config().live_poll_interval_seconds)
         if typ == "search":
             repo = repo_root(Path(payload.get("repo") or ".")); return search(repo, str(payload.get("query") or ""), int(payload.get("top_k") or 8), bool(payload.get("refresh")), resource_cache.get(repo))
         if typ == "refresh":

@@ -9,7 +9,8 @@ from typing import Any
 POSTGRES_LIFECYCLE_COMMAND = "runtime/postgres/podman-pgvector.sh"
 POSTGRES_COMPOSE_COMMAND = "podman compose -f runtime/postgres/compose.pgvector.yml up -d"
 POSTGRES_VALIDATION_COMMAND = "scripts/setup.sh --with-cocoindex --postgres-check"
-POSTGRES_EXPORT_COMMAND = "export PI_CODE_INDEX_POSTGRES_URL=postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
+RUNTIME_DEFAULT_POSTGRES_URL = "postgres://cocoindex:cocoindex@localhost:5432/cocoindex"
+POSTGRES_EXPORT_COMMAND = f"export PI_CODE_INDEX_POSTGRES_URL={RUNTIME_DEFAULT_POSTGRES_URL}"
 DAEMON_RESTART_REMINDER = "After changing PI_CODE_INDEX_BACKEND or PI_CODE_INDEX_POSTGRES_URL, run pi-code-index stop --json so the daemon inherits the new environment on the next request."
 
 import yaml
@@ -33,7 +34,7 @@ def validate_identifier(name: str, field_name: str = "identifier") -> str:
 
 @dataclass
 class GlobalConfig:
-    backend: str = "auto"
+    backend: str = "cocoindex"
     postgres_url: str = ""
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     socket_path: str = "~/.pi-code-index/daemon.sock"
@@ -56,7 +57,7 @@ class GlobalConfig:
 
 @dataclass
 class ProjectConfig:
-    backend: str = "auto"
+    backend: str = "cocoindex"
     table_name: str = "code_embeddings"
     chunk_size: int = 1000
     min_chunk_size: int = 120
@@ -115,14 +116,18 @@ def os_environ(name: str) -> str | None:
     return value if value else None
 
 
-def postgres_url_config() -> tuple[str, str | None]:
+def postgres_url_config() -> tuple[str, str]:
     if url := os_environ("PI_CODE_INDEX_POSTGRES_URL"):
         return "pi_code_index", url
     if url := os_environ("POSTGRES_URL"):
         return "postgres_url", url
     if url := _load_yaml(global_config_path()).get("postgres_url"):
         return "config", str(url)
-    return "none", None
+    return "runtime_default", RUNTIME_DEFAULT_POSTGRES_URL
+
+
+def is_runtime_default_postgres_url(source: str, url: str | None) -> bool:
+    return source == "runtime_default" or url == RUNTIME_DEFAULT_POSTGRES_URL
 
 def _known_dataclass_values(cls: type[GlobalConfig] | type[ProjectConfig], values: dict[str, Any]) -> dict[str, Any]:
     known = set(cls.__dataclass_fields__)
@@ -134,8 +139,7 @@ def load_global_config() -> GlobalConfig:
     cfg = GlobalConfig(**_known_dataclass_values(GlobalConfig, data))
     if backend := os_environ("PI_CODE_INDEX_BACKEND"):
         cfg.backend = backend
-    if postgres_url := (os_environ("PI_CODE_INDEX_POSTGRES_URL") or os_environ("POSTGRES_URL")):
-        cfg.postgres_url = postgres_url
+    cfg.postgres_url = postgres_url_config()[1]
     if embedding_model := os_environ("PI_CODE_INDEX_EMBEDDING_MODEL"):
         cfg.embedding_model = embedding_model
     if schema_name := os_environ("PI_CODE_INDEX_SCHEMA_NAME"):
