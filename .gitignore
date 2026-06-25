@@ -1,0 +1,41 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local runtime/index state
+.pi-code-index/
+*.db
+*.sqlite
+*.sqlite3
+*.sock
+*.pid
+*.log
+
+# Beads / local issue tracker state
+.beads/
+.dolt/
+.beads-credential-key
+
+# Agent/local harness state
+.pi/
+.claude/
+artifacts/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

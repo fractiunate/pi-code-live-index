@@ -1,0 +1,36 @@
+[project]
+name = "pi-code-index"
+version = "0.1.0"
+description = "Local semantic-ish code index CLI and Pi extension companion."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+semantic = [
+  "sentence-transformers>=3.0.0",
+  "numpy>=1.26",
+]
+cocoindex = [
+  "cocoindex>=1.0.0",
+  "asyncpg>=0.29.0",
+  "sentence-transformers>=3.0.0",
+]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+pi-code-index = "pi_code_index.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "integration: opt-in tests that require external services such as Postgres/pgvector",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"

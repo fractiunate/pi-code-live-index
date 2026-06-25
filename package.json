@@ -1,0 +1,24 @@
+{
+  "name": "pi-code-index",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension for semantic code search backed by a local pi-code-index CLI.",
+  "main": "index.ts",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "typebox": "^1.0.55"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --allowImportingTsExtensions true",
+    "test:ts": "node --experimental-strip-types --test tests/*.test.ts"
+  }
+}
