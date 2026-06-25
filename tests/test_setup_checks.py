@@ -36,7 +36,7 @@ def test_setup_checks_include_required_ids_and_summary(tmp_path: Path, monkeypat
     (repo / ".git").mkdir()
     (repo / "example.py").write_text("print('ok')\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
 
     payload = run_setup_checks(repo)
 
@@ -52,7 +52,7 @@ def test_doctor_command_returns_setup_payload(tmp_path: Path, monkeypatch, capsy
     (repo / ".git").mkdir()
     (repo / "example.py").write_text("print('ok')\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
 
     code = cli.main(["doctor", "--json", "--repo", str(repo)])
     out = capsys.readouterr().out
@@ -77,13 +77,13 @@ def test_status_json_keeps_backend_object_and_adds_normalized_fields(tmp_path: P
     payload = json.loads(capsys.readouterr().out)
 
     assert code == 0
-    assert payload["backend"]["backend"] == "lexical"
-    assert payload["effective_backend"] == "lexical"
+    assert payload["backend"]["backend"] == "cocoindex"
+    assert payload["effective_backend"] == "cocoindex"
     assert payload["requested_backend"] == "auto"
     assert payload["backend_fallback"] is False
 
 
-def test_status_non_json_prints_degraded_summary(tmp_path: Path, monkeypatch, capsys):
+def test_status_non_json_prints_required_live_summary(tmp_path: Path, monkeypatch, capsys):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -97,7 +97,8 @@ def test_status_non_json_prints_degraded_summary(tmp_path: Path, monkeypatch, ca
     out = capsys.readouterr().out
 
     assert code == 0
-    assert "Backend: lexical (requested: auto, degraded: yes)" in out
+    assert "Backend: cocoindex (requested: auto)" in out
+    assert "Postgres: not configured (required)" in out
     assert "Start Postgres: runtime/postgres/podman-pgvector.sh" in out
 
 
@@ -106,7 +107,7 @@ def test_empty_globs_are_warning_by_default(tmp_path: Path, monkeypatch):
     repo.mkdir()
     (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "lexical")
+    monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "cocoindex")
 
     payload = run_setup_checks(repo)
     glob_check = next(check for check in payload["checks"] if check["id"] == "globs.non_empty")
@@ -127,7 +128,7 @@ def test_postgres_checks_are_psql_first_by_backend(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("PI_CODE_INDEX_BACKEND", "auto")
     auto = run_setup_checks(repo)
     auto_url = next(check for check in auto["checks"] if check["id"] == "postgres.url")
-    assert auto_url["severity"] == "warning"
+    assert auto_url["severity"] == "error"
     assert auto_url["details"]["configured_url_source"] == "none"
     assert "PI_CODE_INDEX_POSTGRES_URL" in auto_url["suggested_command"]
 

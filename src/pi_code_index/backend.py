@@ -8,8 +8,8 @@ from typing import Callable
 from . import context_tools, indexer as lexical
 from .config import POSTGRES_COMPOSE_COMMAND, POSTGRES_LIFECYCLE_COMMAND, POSTGRES_VALIDATION_COMMAND, postgres_url_config, load_global_config, load_project_config
 
-VALID_BACKENDS = {"auto", "lexical", "cocoindex"}
-LEXICAL_DEGRADED_WARNING = "Lexical degraded mode: semantic pgvector ranking, symbol indexing, references, call graph, and impact analysis require CocoIndex/Postgres. Set PI_CODE_INDEX_POSTGRES_URL and run runtime/postgres/podman-pgvector.sh to enable full capabilities."
+VALID_BACKENDS = {"auto", "cocoindex"}
+COCOINDEX_REQUIRED_WARNING = "CocoIndex/Postgres live indexing is required. Configure PI_CODE_INDEX_POSTGRES_URL and start Postgres with runtime/postgres/podman-pgvector.sh."
 
 
 def lexical_capabilities() -> dict[str, object]:
@@ -28,22 +28,14 @@ def postgres_summary() -> dict[str, object]:
     return {"configured": source != "none", "configured_url_source": source, "url": _redact_postgres_url(url), "credentials_redacted": True, "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "compose_command": POSTGRES_COMPOSE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND}
 
 
-def _fallback_warning(operation: str, error: object) -> str:
-    return f"CocoIndex/Postgres {operation} failed; falling back to lexical degraded mode: {error}. Start Postgres with {POSTGRES_LIFECYCLE_COMMAND} and validate with {POSTGRES_VALIDATION_COMMAND}."
-
-
 def _required_error(error: object) -> str:
-    return f"CocoIndex/Postgres backend is required but unavailable: {error}. Configure PI_CODE_INDEX_POSTGRES_URL, start Postgres with {POSTGRES_LIFECYCLE_COMMAND}, then validate with {POSTGRES_VALIDATION_COMMAND}."
+    return f"CocoIndex/Postgres live indexing is required but unavailable: {error}. Configure PI_CODE_INDEX_POSTGRES_URL, start Postgres with {POSTGRES_LIFECYCLE_COMMAND}, then validate with {POSTGRES_VALIDATION_COMMAND}."
 
 
 def _with_backend_metadata(payload: dict[str, object], choice: "BackendChoice", *, fallback: bool = False, warning: str | None = None) -> dict[str, object]:
     payload["requested_backend"] = choice.requested
     payload["backend_fallback"] = fallback
-    if payload.get("backend") == "lexical":
-        payload["capabilities"] = {**lexical_capabilities(), **(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {})}
-        warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
-        payload["warnings"] = [*warnings, *(w for w in [LEXICAL_DEGRADED_WARNING, warning] if w and w not in warnings)]
-    elif warning:
+    if warning:
         payload["warnings"] = [*(payload.get("warnings") if isinstance(payload.get("warnings"), list) else []), warning]
     return payload
 
@@ -68,23 +60,18 @@ def choose_backend(repo: Path) -> BackendChoice:
     if requested not in VALID_BACKENDS:
         raise ValueError(f"invalid backend {requested!r}; expected one of {sorted(VALID_BACKENDS)}")
     if requested == "auto":
-        source, _ = postgres_url_config()
-        return BackendChoice("cocoindex" if source != "none" else "lexical", requested, auto=True)
+        return BackendChoice("cocoindex", requested, auto=True)
     return BackendChoice(requested, requested, auto=False)
 
 
 def _with_auto_fallback(repo: Path, operation: str, func: Callable[[], dict[str, object]], fallback: Callable[[], dict[str, object]], choice: BackendChoice) -> dict[str, object]:
+    del fallback  # compatibility with call sites while legacy lexical routing is retired
+    if postgres_url_config()[1] is None:
+        return {"ok": False, "backend": "cocoindex", "requested_backend": choice.requested, "backend_fallback": False, "operation": operation, "repo": str(repo.resolve()), "error": _required_error("Postgres URL is required")}
     try:
         return func()
     except Exception as exc:  # noqa: BLE001 - backend boundary returns JSON-safe errors
-        if not choice.auto:
-            return {"ok": False, "backend": "cocoindex", "requested_backend": choice.requested, "backend_fallback": False, "operation": operation, "repo": str(repo.resolve()), "error": _required_error(exc)}
-        payload = fallback()
-        warning = _fallback_warning(operation, exc)
-        existing = payload.get("warning")
-        payload["warning"] = f"{existing}; {warning}" if existing else warning
-        payload["backend"] = "lexical"
-        return _with_backend_metadata(payload, choice, fallback=True, warning=warning)
+        return {"ok": False, "backend": "cocoindex", "requested_backend": choice.requested, "backend_fallback": False, "operation": operation, "repo": str(repo.resolve()), "error": _required_error(exc)}
 
 
 def refresh(repo: Path) -> dict[str, object]:
@@ -255,7 +242,7 @@ def repo_map(repo: Path, target: object | None = None, depth: int = 2, include_s
     repo = repo.resolve(); depth = max(0, min(int(depth), 5)); choice = choose_backend(repo)
     if choice.name == "lexical":
         payload = context_tools.repo_map(repo, target, depth, include_symbols, include_tests, refresh_first, "lexical")
-        return _with_backend_metadata(payload, choice, warning="repo_map is path-only in lexical degraded mode; symbol hierarchy requires CocoIndex/Postgres")
+        return _with_backend_metadata(payload, choice, warning="repo_map requires CocoIndex/Postgres for supported operation")
     from . import coco_backend
     return _with_auto_fallback(repo, "repo_map", lambda: coco_backend.repo_map(repo, target, depth, include_symbols, include_tests, refresh_first, coco_resources), lambda: context_tools.repo_map(repo, target, depth, include_symbols, include_tests, refresh_first, "lexical"), choice)
 
@@ -264,33 +251,33 @@ def find_tests(repo: Path, targets: list[object], top_k: int = 20, include_indir
     repo = repo.resolve(); top_k = max(1, min(int(top_k), 100)); choice = choose_backend(repo)
     if choice.name == "lexical":
         payload = context_tools.find_tests(repo, targets, top_k, include_indirect, refresh_first, "lexical")
-        return _with_backend_metadata(payload, choice, warning="find_tests is path-heuristic only in lexical degraded mode; indexed test links require CocoIndex/Postgres")
+        return _with_backend_metadata(payload, choice, warning="find_tests requires CocoIndex/Postgres for supported operation")
     from . import coco_backend
     return _with_auto_fallback(repo, "find_tests", lambda: coco_backend.find_tests(repo, targets, top_k, include_indirect, refresh_first, coco_resources), lambda: context_tools.find_tests(repo, targets, top_k, include_indirect, refresh_first, "lexical"), choice)
 
 
 def find_similar_code(repo: Path, target: object | None = None, query: str | None = None, top_k: int = 12, mode: str = "hybrid", scope: str = "chunks", exclude_self: bool = True, refresh_first: bool = False, coco_resources: object | None = None) -> dict[str, object]:
     if not target and not query:
-        return {"ok": False, "backend": "lexical", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "find_similar_code requires target or query"}
-    if mode not in {"semantic", "lexical", "hybrid"}:
-        return {"ok": False, "backend": "lexical", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "mode must be semantic, lexical, or hybrid"}
+        return {"ok": False, "backend": "cocoindex", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "find_similar_code requires target or query"}
+    if mode not in {"semantic", "hybrid"}:
+        return {"ok": False, "backend": "cocoindex", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "mode must be semantic or hybrid"}
     if scope not in {"chunks", "symbols", "files"}:
-        return {"ok": False, "backend": "lexical", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "scope must be chunks, symbols, or files"}
+        return {"ok": False, "backend": "cocoindex", "repo": str(repo.resolve()), "operation": "find_similar_code", "error": "scope must be chunks, symbols, or files"}
     repo = repo.resolve(); top_k = max(1, min(int(top_k), 100)); choice = choose_backend(repo)
     if choice.name == "lexical":
         payload = context_tools.find_similar_code(repo, target, query, top_k, mode, scope, exclude_self, refresh_first, "lexical")
-        return _with_backend_metadata(payload, choice, warning="find_similar_code is lexical-only in degraded mode; semantic similarity requires CocoIndex/Postgres")
+        return _with_backend_metadata(payload, choice, warning="find_similar_code requires CocoIndex/Postgres for supported operation")
     from . import coco_backend
     return _with_auto_fallback(repo, "find_similar_code", lambda: coco_backend.find_similar_code(repo, target, query, top_k, mode, scope, exclude_self, refresh_first, coco_resources), lambda: context_tools.find_similar_code(repo, target, query, top_k, mode, scope, exclude_self, refresh_first, "lexical"), choice)
 
 
 def review_context(repo: Path, targets: list[object], top_k: int = 30, include_map: bool = True, include_tests: bool = True, include_similar: bool = True, include_impact: bool = True, refresh_first: bool = False, coco_resources: object | None = None) -> dict[str, object]:
     if not targets:
-        return {"ok": False, "backend": "lexical", "repo": str(repo.resolve()), "operation": "review_context", "error": "review_context requires at least one target"}
+        return {"ok": False, "backend": "cocoindex", "repo": str(repo.resolve()), "operation": "review_context", "error": "review_context requires at least one target"}
     repo = repo.resolve(); top_k = max(1, min(int(top_k), 200)); choice = choose_backend(repo)
     if choice.name == "lexical":
         payload = context_tools.review_context(repo, targets, top_k, include_map, include_tests, include_similar, include_impact, refresh_first, "lexical")
-        return _with_backend_metadata(payload, choice, warning="review_context uses lexical/heuristic evidence only in degraded mode")
+        return _with_backend_metadata(payload, choice, warning="review_context requires CocoIndex/Postgres for supported operation")
     from . import coco_backend
     return _with_auto_fallback(repo, "review_context", lambda: coco_backend.review_context(repo, targets, top_k, include_map, include_tests, include_similar, include_impact, refresh_first, coco_resources), lambda: context_tools.review_context(repo, targets, top_k, include_map, include_tests, include_similar, include_impact, refresh_first, "lexical"), choice)
 
@@ -308,5 +295,5 @@ def status_lexical(repo: Path) -> dict[str, object]:
         "counts": {"repo_hierarchy_nodes": 0, "test_links": 0, "test_files": 0, "similarity_candidates": len(idx.chunks) if idx else 0, "freshness_current": idx.files if idx else 0, "freshness_stale": 0, "freshness_error": 0},
         "capabilities": lexical_capabilities(),
         "quality_context": {"ready": bool(idx), "warnings": ["lexical heuristics only"]},
-        "warnings": [LEXICAL_DEGRADED_WARNING],
+        "warnings": [COCOINDEX_REQUIRED_WARNING],
     }

@@ -66,8 +66,9 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
     global_cfg = load_global_config()
     project_cfg = load_project_config(repo)
     requested_backend = choose_backend(repo).requested
-    coco_required = requested_backend == "cocoindex"
-    coco_severity = "error" if coco_required else "warning"
+    effective_backend = choose_backend(repo).name
+    coco_required = effective_backend == "cocoindex"
+    coco_severity = "error"
 
     checks.append(_check("tool.uv", shutil.which("uv") is not None, "error", "uv is installed" if shutil.which("uv") else "uv is not installed", suggested_command="Install uv and rerun scripts/setup.sh"))
     checks.append(_check("tool.node_npm", shutil.which("node") is not None and shutil.which("npm") is not None, "warning", "node and npm are available" if shutil.which("node") and shutil.which("npm") else "node/npm not found", suggested_command="npm install"))
@@ -100,7 +101,7 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
     checks.append(_check("daemon.runtime_stale", not stale, "warning", "runtime files are healthy" if not stale else "stale runtime files detected", stale_facts, "pi-code-index stop --json"))
 
     coco_import_ok = importlib.util.find_spec("cocoindex") is not None
-    checks.append(_check("cocoindex.optional_deps", coco_import_ok or not coco_required, coco_severity, "CocoIndex optional dependencies are available" if coco_import_ok else "CocoIndex optional dependencies are not installed", suggested_command="scripts/setup.sh --with-cocoindex"))
+    checks.append(_check("cocoindex.optional_deps", coco_import_ok, coco_severity, "CocoIndex optional dependencies are available" if coco_import_ok else "CocoIndex optional dependencies are not installed", suggested_command="scripts/setup.sh --with-cocoindex"))
     url_source, postgres_url = postgres_url_config()
     pg_details = {"configured_url_source": url_source, "preferred_env": "PI_CODE_INDEX_POSTGRES_URL", "compat_env": "POSTGRES_URL", "lifecycle_command": POSTGRES_LIFECYCLE_COMMAND, "validation_command": POSTGRES_VALIDATION_COMMAND}
     if postgres_url:
@@ -115,11 +116,8 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
     elif requested_backend == "cocoindex":
         pg_ok, pg_severity, pg_message, pg_command = False, "error", "Postgres URL is required for backend=cocoindex.", POSTGRES_EXPORT_COMMAND
         pg_details = {**pg_details, "url_valid": False}
-    elif requested_backend == "auto":
-        pg_ok, pg_severity, pg_message, pg_command = False, "warning", "Postgres URL is not configured; backend=auto is using lexical degraded mode.", POSTGRES_EXPORT_COMMAND
-        pg_details = {**pg_details, "url_valid": False}
     else:
-        pg_ok, pg_severity, pg_message, pg_command = True, "info", "Postgres URL is not configured; backend=lexical does not require Postgres.", POSTGRES_LIFECYCLE_COMMAND
+        pg_ok, pg_severity, pg_message, pg_command = False, "error", "Postgres URL is required for live CocoIndex indexing.", POSTGRES_EXPORT_COMMAND
         pg_details = {**pg_details, "url_valid": False}
     checks.append(_check("postgres.url", pg_ok, pg_severity, pg_message, pg_details, pg_command))
     reachable_ok = True
@@ -149,8 +147,8 @@ def run_setup_checks(repo: Path | None = None, cleanup_facts: dict[str, Any] | N
         ("postgres.canonical_tables", "CocoIndex canonical table presence is checked after refresh."),
     ]:
         details = {**pg_details, "live_check_performed": False}
-        checks.append(_check(check_id, not coco_required, "warning", message, details, POSTGRES_VALIDATION_COMMAND if check_id != "postgres.canonical_tables" else "pi-code-index refresh --json"))
-    checks.append(_check("cocoindex.version", coco_import_ok or not coco_required, coco_severity, "CocoIndex version is available" if coco_import_ok else "CocoIndex version could not be checked", suggested_command="scripts/setup.sh --with-cocoindex"))
+        checks.append(_check(check_id, False, "warning", message, details, POSTGRES_VALIDATION_COMMAND if check_id != "postgres.canonical_tables" else "pi-code-index refresh --json"))
+    checks.append(_check("cocoindex.version", coco_import_ok, coco_severity, "CocoIndex version is available" if coco_import_ok else "CocoIndex version could not be checked", suggested_command="scripts/setup.sh --with-cocoindex"))
 
     summary = {
         "errors": sum(1 for check in checks if not check["ok"] and check["severity"] == "error"),
